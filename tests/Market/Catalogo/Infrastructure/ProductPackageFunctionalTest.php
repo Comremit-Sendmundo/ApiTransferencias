@@ -6,7 +6,7 @@ namespace App\Tests\Market\Catalogo\Infrastructure;
 
 use App\Market\Catalogo\Domain\Category;
 use App\Market\Catalogo\Domain\CategoryRepository;
-use App\Market\Catalogo\Domain\Slug;
+use App\Shared\Domain\Slug;
 use App\Market\Catalogo\Infrastructure\Http\ChangeProductStatusDto;
 use App\Market\Catalogo\Infrastructure\Http\CreateProductDto;
 use App\Market\Catalogo\Infrastructure\Http\ProductController;
@@ -176,6 +176,25 @@ final class ProductPackageFunctionalTest extends ProviderFunctionalTestCase
         $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
         $this->assertFalse($this->body($response)['isActive']);
         $this->assertFalse($this->packageRow($productId)['is_active']);
+        $again = $this->body($this->packages()->publish($productId, new PublishProductPackageDto('12.50', 'USD')));
+        $this->assertSame($published['packageId'], $again['packageId']);
+        $this->assertTrue($this->packageRow($productId)['is_active']);
+    }
+
+    public function testWithdrawingTheProductDeactivatesItsPackageAndPublishingItAgainDoesNotReactivateIt(): void
+    {
+        $productId = $this->publishedProduct();
+        $published = $this->body($this->packages()->publish($productId, new PublishProductPackageDto('12.50', 'USD')));
+        $this->assertTrue($this->packageRow($productId)['is_active']);
+
+        $withdrawn = $this->products()->changeStatus($productId, new ChangeProductStatusDto('withdrawn'));
+
+        $this->assertSame(Response::HTTP_OK, $withdrawn->getStatusCode(), (string) $withdrawn->getContent());
+        $this->assertFalse($this->packageRow($productId)['is_active'], 'Retirar el producto retira su oferta.');
+        $this->assertSame($published['packageId'], (int) $this->packageRow($productId)['id'], 'El paquete no se borra.');
+
+        $this->products()->changeStatus($productId, new ChangeProductStatusDto('published'));
+        $this->assertFalse($this->packageRow($productId)['is_active'], 'Volver a publicar el producto no reactiva la oferta.');
         $again = $this->body($this->packages()->publish($productId, new PublishProductPackageDto('12.50', 'USD')));
         $this->assertSame($published['packageId'], $again['packageId']);
         $this->assertTrue($this->packageRow($productId)['is_active']);

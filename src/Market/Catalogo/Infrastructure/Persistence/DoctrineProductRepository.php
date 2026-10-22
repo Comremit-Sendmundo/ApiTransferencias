@@ -49,6 +49,60 @@ final class DoctrineProductRepository implements ProductRepository
         return $products;
     }
 
+    public function productIdsByCategory(): array
+    {
+        $byCategory = [];
+        foreach ($this->em->getConnection()->fetchAllNumeric('SELECT category_id, product_id FROM market_product_category') as [$categoryId, $productId]) {
+            $byCategory[(int) $categoryId][] = (int) $productId;
+        }
+
+        return $byCategory;
+    }
+
+    public function hasPhysicalProducts(): bool
+    {
+        return $this->em->getConnection()->fetchOne('SELECT 1 FROM market_product WHERE content_base IS NOT NULL LIMIT 1') !== false;
+    }
+
+    public function countsByBrand(): array
+    {
+        return $this->countsBy('brand_id');
+    }
+
+    public function countsBySeller(): array
+    {
+        return $this->countsBy('seller_id');
+    }
+
+    /**
+     * @param 'brand_id'|'seller_id' $column
+     *
+     * @return array<int, int>
+     */
+    private function countsBy(string $column): array
+    {
+        $counts = [];
+        foreach ($this->em->getConnection()->fetchAllNumeric(sprintf('SELECT %1$s, COUNT(*) FROM market_product WHERE %1$s IS NOT NULL GROUP BY %1$s', $column)) as [$id, $count]) {
+            $counts[(int) $id] = (int) $count;
+        }
+
+        return $counts;
+    }
+
+    public function skusStartingWith(string $prefix): array
+    {
+        /** @var list<string> $skus */
+        $skus = $this->em->createQueryBuilder()
+            ->select('p.sku')
+            ->from(Product::class, 'p')
+            ->where('p.sku LIKE :prefix')
+            ->setParameter('prefix', addcslashes(strtoupper($prefix), '%_\\') . '%')
+            ->getQuery()
+            ->getSingleColumnResult();
+
+        return $skus;
+    }
+
     public function search(ProductFilter $filter, ?int $limit = null, int $offset = 0): array
     {
         $qb = $this->filtered($filter)->select('p')->orderBy('p.sku', 'ASC');

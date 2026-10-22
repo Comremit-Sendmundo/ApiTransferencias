@@ -14,9 +14,13 @@ namespace App\Market\Catalogo\Domain;
  * - Las dimensiones son las del producto, o las de una unidad si es por conteo; con ellas el volumen se deriva (COMR-104).
  * - Un producto lleva contenido o valor, no los dos: con valor (una gift card, COMR-276) es digital y no lleva nada de lo físico.
  * - La clasificación (servicio, subservicio y área) es obligatoria y dice de qué tipo es; no hay un campo de tipo aparte.
+ * - Los atributos libres (color, sabor, talla…) son opcionales y valen para cualquier producto, físico o digital (COMR-284).
  */
 final readonly class ProductSpec
 {
+    /** Los atributos libres del producto (color, sabor, talla…); vacíos si no tiene (COMR-284). */
+    public ProductAttributes $attributes;
+
     public function __construct(
         public ProductTexts $texts,
         public Classification $classification,
@@ -27,7 +31,11 @@ final readonly class ProductSpec
         public ?DeliveryBasis $deliveryBasis,
         public ?string $barcode = null,
         public ?ProductValue $value = null,
+        /** Las unidades base con que se calculan los totales; sin él, las estándar (kilogramos y litros). */
+        public ?MeasureSystem $measures = null,
+        ?ProductAttributes $attributes = null,
     ) {
+        $this->attributes = $attributes ?? ProductAttributes::empty();
         if ($barcode !== null && preg_match('/^[0-9]{8,14}$/', $barcode) !== 1) {
             throw new InvalidProduct('El código de barras son entre 8 y 14 dígitos.');
         }
@@ -43,10 +51,10 @@ final readonly class ProductSpec
 
         $this->validateReferences($content);
 
-        if ($deliveryBasis->kind() === MeasureKind::WEIGHT && $this->totalWeightG() === null) {
+        if ($deliveryBasis->kind() === MeasureKind::WEIGHT && $this->totalWeight() === null) {
             throw new InvalidProduct('Para tarifar por peso el producto necesita su peso (o el peso de una unidad).');
         }
-        if ($deliveryBasis->kind() === MeasureKind::VOLUME && $this->totalVolumeMl() === null) {
+        if ($deliveryBasis->kind() === MeasureKind::VOLUME && $this->totalVolume() === null) {
             throw new InvalidProduct('Para tarifar por volumen el producto necesita su volumen, el de una unidad o sus dimensiones.');
         }
     }
@@ -57,8 +65,8 @@ final readonly class ProductSpec
         return $this->value !== null;
     }
 
-    /** Peso total en gramos, o null si no se puede saber (o si es digital). */
-    public function totalWeightG(): ?float
+    /** Peso total en la unidad base de peso (kilogramos), o null si no se puede saber (o si es digital). */
+    public function totalWeight(): ?float
     {
         if ($this->content === null) {
             return null;
@@ -66,26 +74,27 @@ final readonly class ProductSpec
 
         return match ($this->content->kind()) {
             MeasureKind::WEIGHT => $this->content->baseValue(),
-            MeasureKind::COUNT => $this->unitWeight === null ? null : round($this->content->baseValue() * $this->unitWeight->baseValue(), 3),
+            MeasureKind::COUNT => $this->unitWeight === null ? null : round($this->content->baseValue() * $this->unitWeight->baseValue(), 6),
             MeasureKind::VOLUME => null,
         };
     }
 
-    /** Volumen total en mililitros (= cm³), o null si no se puede saber (o si es digital). */
-    public function totalVolumeMl(): ?float
+    /** Volumen total en la unidad base de volumen (litros), o null si no se puede saber (o si es digital). */
+    public function totalVolume(): ?float
     {
         if ($this->content === null) {
             return null;
         }
+        $system = $this->measures ?? MeasureSystem::standard();
 
         return match ($this->content->kind()) {
             MeasureKind::VOLUME => $this->content->baseValue(),
             MeasureKind::COUNT => match (true) {
-                $this->unitVolume !== null => round($this->content->baseValue() * $this->unitVolume->baseValue(), 3),
-                $this->dimensions !== null => round($this->content->baseValue() * $this->dimensions->volumeCm3(), 3),
+                $this->unitVolume !== null => round($this->content->baseValue() * $this->unitVolume->baseValue(), 6),
+                $this->dimensions !== null => round($this->content->baseValue() * $this->dimensions->volume($system), 6),
                 default => null,
             },
-            MeasureKind::WEIGHT => $this->dimensions?->volumeCm3(),
+            MeasureKind::WEIGHT => $this->dimensions?->volume($system),
         };
     }
 

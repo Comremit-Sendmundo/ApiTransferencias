@@ -22,8 +22,10 @@ use App\Market\Catalogo\Domain\ProductCategoryInvalid;
 use App\Market\Catalogo\Domain\ProductNotFound;
 use App\Market\Catalogo\Domain\ProductSellerInvalid;
 use App\Market\Catalogo\Domain\ProductStatus;
+use App\Market\Catalogo\Domain\ProductGallery;
+use App\Market\Catalogo\Domain\ProductImage;
 use App\Market\Catalogo\Domain\Seller;
-use App\Market\Catalogo\Domain\Slug;
+use App\Shared\Domain\Slug;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -39,12 +41,14 @@ final class ProductUseCasesTest extends TestCase
     private InMemorySellerRepository $sellers;
     private InMemoryBrandRepository $brands;
     private InMemoryCategoryRepository $categories;
+    private InMemoryProductImageRepository $images;
     private Seller $platform;
     private Seller $garajito;
 
     protected function setUp(): void
     {
         $this->products = new InMemoryProductRepository();
+        $this->images = new InMemoryProductImageRepository();
         $this->sellers = new InMemorySellerRepository();
         $this->platform = Seller::platform(1, 10, new Slug('plataforma'), 'Plataforma');
         $this->garajito = Seller::create(2, 20, new Slug('garajito'), 'Garajito');
@@ -56,7 +60,7 @@ final class ProductUseCasesTest extends TestCase
 
     private function assembler(): ProductDetailsAssembler
     {
-        return new ProductDetailsAssembler($this->sellers, $this->brands, $this->categories);
+        return new ProductDetailsAssembler($this->sellers, $this->brands, $this->categories, $this->images);
     }
 
     private function update(): UpdateProduct
@@ -175,7 +179,7 @@ final class ProductUseCasesTest extends TestCase
         ]));
 
         $this->assertSame('Refresco de cola light', $updated->product->spec()->texts->all()['es']['name']);
-        $this->assertEqualsWithDelta(330.0, $updated->product->spec()->content->baseValue(), 0.001);
+        $this->assertEqualsWithDelta(0.33, $updated->product->spec()->content->baseValue(), 0.0000001);
         $this->assertSame('COLA-330', $updated->product->sku()->value());
         $this->assertSame($this->garajito->id(), $updated->product->sellerId());
     }
@@ -191,7 +195,7 @@ final class ProductUseCasesTest extends TestCase
             $this->fail('Debió rechazar los datos');
         } catch (InvalidProduct) {
             $this->assertSame($saves, $this->products->saves);
-            $this->assertEqualsWithDelta(500.0, $this->products->findById($id)?->spec()->content->baseValue(), 0.001);
+            $this->assertEqualsWithDelta(0.5, $this->products->findById($id)?->spec()->content->baseValue(), 0.0000001);
         }
     }
 
@@ -243,7 +247,7 @@ final class ProductUseCasesTest extends TestCase
     {
         $category = $this->category('bebidas');
         $id = (int) ($this->create())('cola-330', null, $this->input(['categoryIds' => [(int) $category->id()]]))->product->id();
-        $change = new ChangeProductStatus($this->products, $this->assembler());
+        $change = new ChangeProductStatus($this->products, $this->assembler(), new InMemoryProductPackages());
 
         $this->assertSame(ProductStatus::PUBLISHED, $change($id, ProductStatus::PUBLISHED)->product->status());
         $this->assertSame(ProductStatus::WITHDRAWN, $change($id, ProductStatus::WITHDRAWN)->product->status());
@@ -254,7 +258,7 @@ final class ProductUseCasesTest extends TestCase
     {
         $category = $this->category('bebidas');
         $id = (int) ($this->create())('cola-330', null, $this->input(['categoryIds' => [(int) $category->id()]]))->product->id();
-        $change = new ChangeProductStatus($this->products, $this->assembler());
+        $change = new ChangeProductStatus($this->products, $this->assembler(), new InMemoryProductPackages());
 
         try {
             $change($id, ProductStatus::WITHDRAWN);
@@ -284,7 +288,7 @@ final class ProductUseCasesTest extends TestCase
         $category = $this->category('bebidas');
         $cola = (int) $create('cola-330', (int) $this->garajito->id(), $this->input(['categoryIds' => [(int) $category->id()]]))->product->id();
         $create('agua-500', null, $this->input(['texts' => ['es' => ['name' => 'Agua mineral']]]));
-        (new ChangeProductStatus($this->products, $this->assembler()))($cola, ProductStatus::PUBLISHED);
+        (new ChangeProductStatus($this->products, $this->assembler(), new InMemoryProductPackages()))($cola, ProductStatus::PUBLISHED);
         $list = new ListProducts($this->products, $this->assembler(), $this->categories);
         $skus = static fn ($page) => array_map(static fn ($d) => $d->product->sku()->value(), $page->items);
 
@@ -403,7 +407,7 @@ final class ProductUseCasesTest extends TestCase
 
         $this->expectException(InvalidProduct::class);
 
-        (new ChangeProductStatus($this->products, $this->assembler()))($id, ProductStatus::PUBLISHED);
+        (new ChangeProductStatus($this->products, $this->assembler(), new InMemoryProductPackages()))($id, ProductStatus::PUBLISHED);
     }
 
     public function testItListsByBrandAndByCategoryIncludingItsSubcategories(): void
@@ -519,5 +523,43 @@ final class ProductUseCasesTest extends TestCase
 
         $this->assertSame(['ACTIVO'], $skus($list(null, null, null, relevantOn: new \DateTimeImmutable('2026-10-15'))));
         $this->assertSame(['ACTIVO', 'FUTURO', 'NORMAL', 'VENCIDO'], $skus($list(null, null, null)));
+    }
+
+    private function addImages(int $productId, string ...$files): void
+    {
+        $gallery = ProductGallery::of([], 8);
+        foreach ($files as $file) {
+            $gallery->add(ProductImage::create($productId, $file, $file . '.png', 'image/png', 100, 10, 10));
+        }
+        $this->images->saveAll($gallery->images());
+    }
+
+    public function testEachProductOfTheListCarriesItsReferenceImageWhenItHasOne(): void
+    {
+        $create = $this->create();
+        $withImages = (int) $create('con-fotos', null, $this->input())->product->id();
+        $without = (int) $create('sin-fotos', null, $this->input())->product->id();
+        $this->addImages($withImages, 'aaa', 'bbb');
+        $list = new ListProducts($this->products, $this->assembler(), $this->categories);
+
+        $items = [];
+        foreach ($list(null, null, null)->items as $details) {
+            $items[$details->product->sku()->value()] = $details->referenceImage;
+        }
+
+        $this->assertSame('aaa', $items['CON-FOTOS']?->file(), 'La primera imagen subida es la de referencia.');
+        $this->assertTrue($items['CON-FOTOS']->isReference());
+        $this->assertNull($items['SIN-FOTOS']);
+        $this->assertNotSame($without, $withImages);
+    }
+
+    public function testReadingOneProductAlsoCarriesItsReferenceImage(): void
+    {
+        $id = (int) ($this->create())('con-fotos', null, $this->input())->product->id();
+        $this->addImages($id, 'aaa');
+
+        $details = (new GetProduct($this->products, $this->assembler()))($id);
+
+        $this->assertSame('aaa', $details->referenceImage?->file());
     }
 }

@@ -9,8 +9,11 @@ use App\Market\Catalogo\Domain\CategoryRepository;
 use App\Market\Catalogo\Domain\InvalidProduct;
 use App\Market\Catalogo\Domain\ProductBrandInvalid;
 use App\Market\Catalogo\Domain\ProductCategoryInvalid;
+use App\Market\Catalogo\Domain\MeasureSettings;
+use App\Market\Catalogo\Domain\MeasureSystem;
 use App\Market\Catalogo\Domain\ProductNotFound;
 use App\Market\Catalogo\Domain\ProductRepository;
+use App\Market\Catalogo\Domain\ProductImageRepository;
 use App\Market\Catalogo\Domain\SellerRepository;
 
 final class UpdateProduct
@@ -23,9 +26,11 @@ final class UpdateProduct
         SellerRepository $sellers,
         BrandRepository $brands,
         CategoryRepository $categories,
+        ?ProductImageRepository $images = null,
+        private readonly ?MeasureSettings $measures = null,
     ) {
         $this->references = new ProductReferences($brands, $categories);
-        $this->assembler = new ProductDetailsAssembler($sellers, $brands, $categories);
+        $this->assembler = new ProductDetailsAssembler($sellers, $brands, $categories, $images);
     }
 
     /**
@@ -39,7 +44,7 @@ final class UpdateProduct
     public function __invoke(int $id, ProductSpecInput $input): ProductDetails
     {
         $product = $this->products->findById($id) ?? throw ProductNotFound::forId($id);
-        $spec = $input->toSpec();
+        $spec = $input->toSpec($this->measures === null ? null : MeasureSystem::fromSettings($this->measures));
         $this->references->check($product->sellerId(), $input->brandId, $input->categoryIds, $product->brandId(), $product->categoryIds());
 
         $product->update($spec);

@@ -8,7 +8,7 @@ use App\Market\Catalogo\Domain\Category;
 use App\Market\Catalogo\Domain\CategoryCycle;
 use App\Market\Catalogo\Domain\CategoryDepthExceeded;
 use App\Market\Catalogo\Domain\CategoryTree;
-use App\Market\Catalogo\Domain\Slug;
+use App\Shared\Domain\Slug;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -127,5 +127,19 @@ final class CategoryTreeTest extends TestCase
         (new \ReflectionProperty(Category::class, 'id'))->setValue($orphan, 8);
 
         $this->assertSame(1, (new CategoryTree([$orphan]))->depthOf(8));
+    }
+
+    public function testItListsAllTheDescendantsOfACategory(): void
+    {
+        $tree = $this->tree();
+
+        $all = $tree->descendantsOf(1);
+        sort($all);
+
+        $this->assertSame([2, 3, 4], $all);
+        $this->assertSame([3], $tree->descendantsOf(2));
+        $this->assertSame([], $tree->descendantsOf(3));
+        $this->assertSame([], $tree->descendantsOf(5));
+        $this->assertSame([], $tree->descendantsOf(999));
     }
 }

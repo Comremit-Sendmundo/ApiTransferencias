@@ -14,7 +14,7 @@ use App\Market\Catalogo\Domain\BrandNotFound;
 use App\Market\Catalogo\Domain\BrandSellerInvalid;
 use App\Market\Catalogo\Domain\InvalidBrand;
 use App\Market\Catalogo\Domain\Seller;
-use App\Market\Catalogo\Domain\Slug;
+use App\Shared\Domain\Slug;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -80,11 +80,11 @@ final class BrandUseCasesTest extends TestCase
 
     public function testTheSlugIsUniqueAcrossAllSellers(): void
     {
-        ($this->create())((int) $this->garajito->id(), 'Cola Premium');
+        ($this->create())((int) $this->garajito->id(), 'Cola Premium', 'cola-premium');
 
         $this->expectException(BrandAlreadyExists::class);
 
-        ($this->create())((int) $this->platform->id(), 'Cola Premium');
+        ($this->create())((int) $this->platform->id(), 'Cola Premium', 'cola-premium');
     }
 
     public function testAnInvalidNameOrSlugCreatesNothing(): void
@@ -93,7 +93,7 @@ final class BrandUseCasesTest extends TestCase
             try {
                 ($this->create())((int) $this->garajito->id(), $name, $slug);
                 $this->fail('Debió rechazar los datos');
-            } catch (InvalidBrand|\App\Market\Catalogo\Domain\InvalidSeller) {
+            } catch (InvalidBrand|\App\Shared\Domain\InvalidSlug) {
                 $this->assertSame([], $this->brands->brands);
             }
         }
@@ -150,5 +150,24 @@ final class BrandUseCasesTest extends TestCase
         $this->assertSame(['Cola Premium'], $names($list('cola', null, null)));
         $this->assertSame(['Agua Pura'], $names($list(null, (int) $this->platform->id(), null)));
         $this->assertSame(['Cola Premium'], $names($list(null, null, true)));
+    }
+
+    public function testADerivedSlugThatIsTakenGetsTheNextNumber(): void
+    {
+        $first = ($this->create())((int) $this->garajito->id(), 'Cola Premium');
+        $second = ($this->create())((int) $this->garajito->id(), 'Cola Premium');
+        $third = ($this->create())((int) $this->platform->id(), 'cola   premium');
+
+        $this->assertSame('cola-premium', $first->brand->slug()->value());
+        $this->assertSame('cola-premium-2', $second->brand->slug()->value());
+        $this->assertSame('cola-premium-3', $third->brand->slug()->value());
+    }
+
+    public function testAnExplicitSlugThatIsTakenIsStillRejected(): void
+    {
+        ($this->create())((int) $this->garajito->id(), 'Cola Premium', 'cola');
+
+        $this->expectException(\App\Market\Catalogo\Domain\BrandAlreadyExists::class);
+        ($this->create())((int) $this->garajito->id(), 'Otra marca', 'cola');
     }
 }

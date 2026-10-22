@@ -8,9 +8,12 @@ use App\Market\Catalogo\Domain\Brand;
 use App\Market\Catalogo\Domain\BrandRepository;
 use App\Market\Catalogo\Domain\Category;
 use App\Market\Catalogo\Domain\CategoryRepository;
+use App\Market\Catalogo\Domain\ProductGallery;
+use App\Market\Catalogo\Domain\ProductImage;
+use App\Market\Catalogo\Domain\ProductImageRepository;
 use App\Market\Catalogo\Domain\ProductRepository;
 use App\Market\Catalogo\Domain\SellerRepository;
-use App\Market\Catalogo\Domain\Slug;
+use App\Shared\Domain\Slug;
 use App\Market\Catalogo\Infrastructure\Http\ChangeProductStatusDto;
 use App\Market\Catalogo\Infrastructure\Http\CreateProductDto;
 use App\Market\Catalogo\Infrastructure\Http\ProductController;
@@ -118,6 +121,47 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
         return (int) $brand->id();
     }
 
+    public function testTheDimensionUnitIsRememberedAndTheDimensionsStayInMillimeters(): void
+    {
+        $this->admin();
+
+        $created = $this->body($this->controller()->create($this->createDto('CAJA-IN', [
+            'lengthMm' => 254.0, 'widthMm' => 127.0, 'heightMm' => 50.8, 'dimensionsUnit' => 'in',
+        ])));
+        $again = $this->body($this->controller()->get($created['id'], new Request()));
+
+        $this->assertSame('in', $again['dimensions']['unit']);
+        $this->assertEquals(254.0, $again['dimensions']['lengthMm']);
+        $this->assertEqualsWithDelta(1638.706, $again['dimensions']['volumeCm3'], 0.001, 'El volumen no depende de la unidad.');
+    }
+
+    public function testAnUnknownDimensionUnitIsRejectedByTheApi(): void
+    {
+        $this->admin();
+
+        $response = $this->controller()->create($this->createDto('CAJA-YD', ['lengthMm' => 100.0, 'widthMm' => 50.0, 'heightMm' => 20.0, 'dimensionsUnit' => 'yd']));
+
+        $this->assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode(), (string) $response->getContent());
+    }
+
+    public function testItAcceptsTheNewUnitsAndStoresThemInTheBase(): void
+    {
+        $this->admin();
+
+        $byTheDozen = $this->body($this->controller()->create($this->createDto('HUEVOS-DOC', [
+            'contentValue' => 2.0, 'contentUnit' => 'dozen', 'unitWeightValue' => 60.0, 'unitWeightUnit' => 'g',
+        ])));
+        $byTheTon = $this->body($this->controller()->create($this->createDto('ARROZ-TON', ['contentValue' => 1.5, 'contentUnit' => 't'])));
+        $byTheGallon = $this->body($this->controller()->create($this->createDto('AGUA-GAL', [
+            'contentValue' => 2.0, 'contentUnit' => 'gal', 'deliveryKind' => 'volume', 'deliveryUnit' => 'gal',
+        ])));
+
+        $this->assertEquals(['value' => 2.0, 'unit' => 'dozen', 'base' => 24.0, 'baseUnit' => 'unit', 'kind' => 'count'], $byTheDozen['content']);
+        $this->assertEqualsWithDelta(1.44, $byTheDozen['totalWeight'], 0.0000001);
+        $this->assertEquals(1500.0, $byTheTon['totalWeight']);
+        $this->assertEqualsWithDelta(7.570824, $byTheGallon['totalVolume'], 0.0000001);
+    }
+
     public function testItCreatesADraftForThePlatformSellerAndKeepsTheOriginalUnit(): void
     {
         $this->admin();
@@ -136,9 +180,9 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
         $this->assertArrayNotHasKey('type', $data, 'El tipo lo dan el servicio y el subservicio, no un campo aparte.');
         $this->assertNull($data['value']);
         $this->assertTrue($data['seller']['isPlatform']);
-        $this->assertSame(['value' => 2.5, 'unit' => 'lb', 'base' => 1133.981, 'baseUnit' => 'g', 'kind' => 'weight'], $data['content']);
-        $this->assertSame(1133.981, $data['totalWeightG']);
-        $this->assertNull($data['totalVolumeMl']);
+        $this->assertSame(['value' => 2.5, 'unit' => 'lb', 'base' => 1.133981, 'baseUnit' => 'kg', 'kind' => 'weight'], $data['content']);
+        $this->assertSame(1.133981, $data['totalWeight']);
+        $this->assertNull($data['totalVolume']);
         $this->assertSame(['kind' => 'weight', 'unit' => 'kg'], $data['deliveryBasis']);
     }
 
@@ -167,12 +211,12 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
         $this->assertSame(12.0, $spec->content->baseValue());
         $this->assertSame('oz', $spec->unitWeight?->unit()->value);
         $this->assertSame(11.64, $spec->unitWeight?->originalValue());
-        $this->assertEqualsWithDelta(329.988, (float) $spec->unitWeight?->baseValue(), 0.001);
+        $this->assertEqualsWithDelta(0.329988, (float) $spec->unitWeight?->baseValue(), 0.0000001);
         $this->assertSame('Supermarket', $spec->classification->area());
         $this->assertSame('8410000123456', $spec->barcode);
         $this->assertSame('es', array_key_first($spec->texts->all()));
-        $this->assertEqualsWithDelta(3959.856, (float) $product?->totalWeightG(), 0.01);
-        $this->assertEqualsWithDelta(12 * 100.0, (float) $product?->totalVolumeMl(), 0.01);
+        $this->assertEqualsWithDelta(3.959856, (float) $product?->totalWeight(), 0.00001);
+        $this->assertEqualsWithDelta(12 * 0.1, (float) $product?->totalVolume(), 0.00001);
     }
 
     public function testASkuIsUniqueRegardlessOfCase(): void
@@ -231,7 +275,7 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
 
         $this->assertSame(Response::HTTP_OK, $response->getStatusCode(), (string) $response->getContent());
         $this->assertSame('COLA-330', $data['sku']);
-        $this->assertEquals(330.0, $data['content']['base']);
+        $this->assertEquals(0.33, $data['content']['base']);
         $this->assertSame(['es'], array_keys($data['texts']));
         $this->assertSame($created['seller']['id'], $data['seller']['id']);
     }
@@ -317,7 +361,7 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
 
         $this->expectException(\Doctrine\DBAL\Exception\UniqueConstraintViolationException::class);
 
-        $connection->executeStatement("INSERT INTO market_product (sku, seller_id, status, service, subservice, texts, content_base, content_original, content_unit, delivery_kind, delivery_unit, created_at, updated_at) SELECT 'COLA-330', seller_id, 'draft', 'Gift Cards', 'Retail', '{}', 1, 1, 'g', 'weight', 'g', NOW(), NOW() FROM market_product LIMIT 1");
+        $connection->executeStatement("INSERT INTO market_product (sku, seller_id, status, service, subservice, texts, content_base, content_original, content_unit, delivery_kind, delivery_unit, created_at, updated_at) SELECT 'COLA-330', seller_id, 'draft', 'Gift Cards', 'Retail', '{}', 1, 1, 'kg', 'weight', 'g', NOW(), NOW() FROM market_product LIMIT 1");
     }
 
     // ---- Productos con valor, como las gift cards (COMR-276) ----
@@ -350,7 +394,7 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
         $this->assertSame(['kind' => 'fixed', 'currency' => 'USD', 'min' => '25.00', 'max' => null], $data['value']);
         $this->assertNull($data['content']);
         $this->assertNull($data['deliveryBasis']);
-        $this->assertNull($data['totalWeightG']);
+        $this->assertNull($data['totalWeight']);
         $this->assertTrue($data['seller']['isPlatform']);
         $this->assertArrayNotHasKey('type', $data);
     }
@@ -693,5 +737,137 @@ final class ProductFunctionalTest extends ProviderFunctionalTestCase
         $this->assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $invalid->getStatusCode());
         $this->assertSame('INVALID_PRODUCT', $this->body($invalid)['error']['code']);
         $this->assertSame(Response::HTTP_NOT_FOUND, $unknown->getStatusCode());
+    }
+
+    public function testItSuggestsTheSkuFromTheNameAndTheCategoryAndContinuesTheConsecutive(): void
+    {
+        $this->admin();
+        $categoryId = $this->categoryId('Alimentos');
+
+        $first = $this->controller()->suggestSku(new Request(['name' => 'Arroz blanco', 'category' => (string) $categoryId]));
+        $this->assertSame(Response::HTTP_OK, $first->getStatusCode());
+        $this->assertSame(['sku' => 'ALI-ARROZ-001'], $this->body($first));
+
+        $this->controller()->create($this->createDto('ALI-ARROZ-001', ['categoryIds' => [$categoryId]]));
+        $second = $this->body($this->controller()->suggestSku(new Request(['name' => 'Arroz integral', 'category' => (string) $categoryId])));
+
+        $this->assertSame(['sku' => 'ALI-ARROZ-002'], $second);
+    }
+
+    public function testTheSkuSuggestionWorksWithoutACategoryAndRejectsAMissingNameOrAnUnknownCategory(): void
+    {
+        $this->admin();
+
+        $generic = $this->body($this->controller()->suggestSku(new Request(['name' => 'Arroz'])));
+        $noName = $this->controller()->suggestSku(new Request(['category' => '1']));
+        $unknown = $this->controller()->suggestSku(new Request(['name' => 'Arroz', 'category' => '987654']));
+
+        $this->assertSame(['sku' => 'GEN-ARROZ-001'], $generic);
+        $this->assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $noName->getStatusCode());
+        $this->assertSame('INVALID_PRODUCT', $this->body($noName)['error']['code']);
+        $this->assertSame(Response::HTTP_NOT_FOUND, $unknown->getStatusCode());
+        $this->assertSame('CATEGORY_NOT_FOUND', $this->body($unknown)['error']['code']);
+    }
+
+    public function testTheListAndTheDetailCarryTheUrlsOfTheReferenceImageOrNull(): void
+    {
+        $this->admin();
+        $with = $this->body($this->controller()->create($this->createDto('CON-FOTO')))['id'];
+        $this->controller()->create($this->createDto('SIN-FOTO'));
+        $file = str_repeat('a', 40);
+        $gallery = ProductGallery::of([], 8);
+        $gallery->add(ProductImage::create($with, $file, 'frente.png', 'image/png', 100, 10, 10));
+        self::getContainer()->get(ProductImageRepository::class)->saveAll($gallery->images());
+
+        $items = [];
+        foreach ($this->body($this->controller()->list(new Request()))['items'] as $item) {
+            $items[$item['sku']] = $item['image'];
+        }
+        $detail = $this->body($this->controller()->get($with, new Request()));
+
+        $this->assertSame(['thumb', 'list', 'detail'], array_keys($items['CON-FOTO']));
+        $this->assertStringContainsString($file, $items['CON-FOTO']['thumb']);
+        $this->assertNull($items['SIN-FOTO']);
+        $this->assertSame($items['CON-FOTO'], $detail['image']);
+    }
+
+    /** @return list<array{name: array<string, string>, value: array<string, string>}> */
+    private function sampleAttributes(): array
+    {
+        return [
+            ['name' => ['es' => 'Color', 'en' => 'Colour'], 'value' => ['es' => 'Rojo', 'en' => 'Red']],
+            ['name' => ['es' => 'Talla'], 'value' => ['es' => 'M']],
+        ];
+    }
+
+    public function testTheAttributesAreSavedReturnedAndSurviveAPersistenceRoundTrip(): void
+    {
+        $this->admin();
+
+        $created = $this->controller()->create($this->createDto('ATTR-1', ['attributes' => $this->sampleAttributes()]));
+
+        $this->assertSame(Response::HTTP_CREATED, $created->getStatusCode(), (string) $created->getContent());
+        $this->assertSame($this->sampleAttributes(), $this->body($created)['attributes']);
+        $this->em->clear();
+        $stored = $this->repository()->findById($this->body($created)['id']);
+        $this->assertSame($this->sampleAttributes(), $stored?->spec()->attributes->all());
+    }
+
+    public function testAProductWithoutAttributesReturnsAnEmptyList(): void
+    {
+        $this->admin();
+
+        $created = $this->body($this->controller()->create($this->createDto('ATTR-2')));
+
+        $this->assertSame([], $created['attributes']);
+    }
+
+    public function testUpdatingReplacesTheAttributesAndAnEmptyListClearsThem(): void
+    {
+        $this->admin();
+        $id = $this->body($this->controller()->create($this->createDto('ATTR-3', ['attributes' => $this->sampleAttributes()])))['id'];
+        $update = static fn (array $attributes) => new UpdateProductDto(
+            texts: ['es' => ['name' => 'Cola']],
+            service: 'Gift Cards',
+            subservice: 'Retail',
+            contentValue: 330.0,
+            contentUnit: 'g',
+            deliveryKind: 'weight',
+            deliveryUnit: 'g',
+            attributes: $attributes,
+        );
+
+        $replaced = $this->body($this->controller()->update($id, $update([['name' => ['es' => 'Sabor'], 'value' => ['es' => 'Limón']]])));
+        $cleared = $this->body($this->controller()->update($id, $update([])));
+
+        $this->assertSame([['name' => ['es' => 'Sabor'], 'value' => ['es' => 'Limón']]], $replaced['attributes']);
+        $this->assertSame([], $cleared['attributes']);
+    }
+
+    public function testWithALanguageTheAttributesComeInThatLanguageWithSpanishAsFallback(): void
+    {
+        $this->admin();
+        $id = $this->body($this->controller()->create($this->createDto('ATTR-4', ['attributes' => $this->sampleAttributes()])))['id'];
+
+        $english = $this->body($this->controller()->get($id, new Request(['lang' => 'en'])))['attributes'];
+
+        $this->assertSame([['name' => ['en' => 'Colour'], 'value' => ['en' => 'Red']], ['name' => ['es' => 'Talla'], 'value' => ['es' => 'M']]], $english);
+    }
+
+    public function testInvalidAttributesAnswerUnprocessableEntityAndCreateNothing(): void
+    {
+        $this->admin();
+        $before = $this->repository()->findBySku('ATTR-5');
+
+        foreach ([
+            [['name' => ['es' => 'Color'], 'value' => ['es' => 'Rojo']], ['name' => ['es' => 'color'], 'value' => ['es' => 'Azul']]],
+            [['name' => ['es' => 'Color'], 'value' => ['en' => 'Red']]],
+        ] as $bad) {
+            $response = $this->controller()->create($this->createDto('ATTR-5', ['attributes' => $bad]));
+
+            $this->assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode(), (string) $response->getContent());
+        }
+        $this->assertNull($before);
+        $this->assertNull($this->repository()->findBySku('ATTR-5'));
     }
 }

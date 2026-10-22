@@ -38,6 +38,61 @@ final class InMemoryProductRepository implements ProductRepository
         return array_values(array_filter($this->products, static fn (Product $p): bool => in_array($p->id(), $ids, true)));
     }
 
+    public function productIdsByCategory(): array
+    {
+        $byCategory = [];
+        foreach ($this->products as $product) {
+            foreach ($product->categoryIds() as $categoryId) {
+                $byCategory[$categoryId][] = (int) $product->id();
+            }
+        }
+
+        return $byCategory;
+    }
+
+    public function hasPhysicalProducts(): bool
+    {
+        foreach ($this->products as $product) {
+            if ($product->spec()->content !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function countsByBrand(): array
+    {
+        $counts = [];
+        foreach ($this->products as $product) {
+            if ($product->brandId() !== null) {
+                $counts[$product->brandId()] = ($counts[$product->brandId()] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    public function countsBySeller(): array
+    {
+        $counts = [];
+        foreach ($this->products as $product) {
+            $counts[$product->sellerId()] = ($counts[$product->sellerId()] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    public function skusStartingWith(string $prefix): array
+    {
+        $prefix = strtoupper($prefix);
+
+        return array_values(array_filter(
+            array_map(static fn (Product $p): string => $p->sku()->value(), $this->products),
+            static fn (string $sku): bool => str_starts_with($sku, $prefix),
+        ));
+    }
+
     public function search(ProductFilter $filter, ?int $limit = null, int $offset = 0): array
     {
         $found = $this->matching($filter);

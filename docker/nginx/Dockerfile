@@ -1,5 +1,5 @@
 # Build PHP app first to get public/ with bundle assets
-FROM php:8.5-fpm-alpine AS php-build
+FROM php:8.5.12-fpm-alpine AS php-build
 
 WORKDIR /var/www
 
