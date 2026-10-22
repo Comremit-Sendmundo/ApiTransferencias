@@ -10,7 +10,7 @@ COPY composer.json composer.lock ./
 RUN composer install --no-scripts --no-autoloader --prefer-dist --no-progress --ignore-platform-req=ext-amqp
 
 # Stage 2: PHP base (used for development) — requires PHP 8.5+
-FROM php:8.5-fpm-alpine AS php-base
+FROM php:8.5.12-fpm-alpine AS php-base
 
 # Use mlocati/docker-php-extension-installer for pre-built binaries (~30s vs ~9min from source)
 COPY --from=mlocati/php-extension-installer:latest /usr/bin/install-php-extensions /usr/local/bin/
