@@ -20,4 +20,27 @@ class CommunicationOperatorRepository extends ServiceEntityRepository
     {
         parent::__construct($registry, CommunicationOperator::class);
     }
+
+    /**
+     * @return CommunicationOperator[]
+     */
+    public function search(?string $country, ?string $search, int $limit, int $offset): array
+    {
+        $qb = $this->createQueryBuilder('o')->orderBy('o.countryName', 'ASC')->addOrderBy('o.name', 'ASC')->addOrderBy('o.id', 'ASC');
+
+        if ($country !== null && $country !== '') {
+            $qb->andWhere('o.countryIsoCode = :country')->setParameter('country', strtoupper($country));
+        }
+        if ($search !== null && trim($search) !== '') {
+            $term = trim($search);
+            // Por id exacto si es un número; si no, por nombre del operador o del país.
+            $qb->andWhere(ctype_digit($term) ? '(o.id = :id OR LOWER(o.name) LIKE :q)' : '(LOWER(o.name) LIKE :q OR LOWER(o.countryName) LIKE :q)')
+                ->setParameter('q', '%' . mb_strtolower($term) . '%');
+            if (ctype_digit($term)) {
+                $qb->setParameter('id', (int) $term);
+            }
+        }
+
+        return $qb->setMaxResults($limit)->setFirstResult($offset)->getQuery()->getResult();
+    }
 }
