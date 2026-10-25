@@ -738,6 +738,25 @@ class CommunicationPackage
      *
      * @return array{id: int, name: string, country: array{name: string, iso_code: string}}|null
      */
+    #[ApiProperty(
+        description: 'Operador (DTOne) al que pertenece el paquete; null si no tiene. El detalle completo está en GET /communication/operators/{id}.',
+        openapiContext: [
+            'type' => 'object',
+            'nullable' => true,
+            'required' => ['id', 'name', 'country'],
+            'properties' => [
+                'id' => ['type' => 'integer', 'example' => 161],
+                'name' => ['type' => 'string', 'example' => 'Cubacel'],
+                'country' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'example' => 'Cuba'],
+                        'iso_code' => ['type' => 'string', 'example' => 'CUB'],
+                    ],
+                ],
+            ],
+        ],
+    )]
     #[Groups(['comPackage:read'])]
     #[SerializedName('operator')]
     public function getOperatorSummary(): ?array
