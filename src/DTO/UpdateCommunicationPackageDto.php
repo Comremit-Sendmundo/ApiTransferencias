@@ -38,6 +38,12 @@ class UpdateCommunicationPackageDto implements IInput
 
     protected ?array $validity;
 
+    #[Assert\Positive]
+    protected ?int $operatorId;
+
+    /** true = quitar el operador del paquete (null en operatorId significa «no tocar»). */
+    protected ?bool $clearOperator;
+
     public function __construct(
         ?string $name = null,
         ?string $description = null,
@@ -52,6 +58,8 @@ class UpdateCommunicationPackageDto implements IInput
         ?array $tags = null,
         ?array $service = null,
         ?array $validity = null,
+        ?int $operatorId = null,
+        ?bool $clearOperator = null,
     ) {
         $this->name = $name;
         $this->description = $description;
@@ -66,6 +74,8 @@ class UpdateCommunicationPackageDto implements IInput
         $this->tags = $tags;
         $this->service = $service;
         $this->validity = $validity;
+        $this->operatorId = $operatorId;
+        $this->clearOperator = $clearOperator;
     }
 
     public function getName(): ?string { return $this->name; }
@@ -106,4 +116,10 @@ class UpdateCommunicationPackageDto implements IInput
 
     public function getValidity(): ?array { return $this->validity; }
     public function setValidity(?array $v): void { $this->validity = $v; }
+
+    public function getOperatorId(): ?int { return $this->operatorId; }
+    public function setOperatorId(?int $v): void { $this->operatorId = $v; }
+
+    public function getClearOperator(): ?bool { return $this->clearOperator; }
+    public function setClearOperator(?bool $v): void { $this->clearOperator = $v; }
 }

@@ -386,6 +386,7 @@ class DashboardCommunicationPackagesController extends AbstractController
             'updatedAt' => $package->getUpdatedAt()?->format('c'),
             'hasBindings' => $hasBindings,
             'promotionId' => $package->getPromotion()?->getId(),
+            'operator' => $package->getOperatorSummary(),
         ];
     }
 
