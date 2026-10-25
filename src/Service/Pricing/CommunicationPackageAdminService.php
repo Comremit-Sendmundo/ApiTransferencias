@@ -105,6 +105,7 @@ class CommunicationPackageAdminService
         $currency = strtoupper((string) $dto->getDestinationCurrency());
         $nameTemplate = (string) $dto->getNameTemplate();
         $descriptionTemplate = (string) $dto->getDescriptionTemplate();
+        $operator = $dto->getOperatorId() !== null ? $this->findOperator($dto->getOperatorId()) : null;
 
         $packages = [];
         for ($i = 0; $i < $count; $i++) {
@@ -132,6 +133,7 @@ class CommunicationPackageAdminService
             $package->setTags($dto->getTags() ?? []);
             $package->setService($dto->getService() ?? []);
             $package->setValidity($dto->getValidity());
+            $package->setOperator($operator);
             $this->applyCreditBenefitDefaults($package);
 
             $this->em->persist($package);

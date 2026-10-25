@@ -406,4 +406,43 @@ class CommunicationPackageAdminServiceTest extends TestCase
 
         $this->assertNull($package->getOperator());
     }
+
+    public function testCreateBatchLinksTheSameOperatorToEveryPackage(): void
+    {
+        $operator = $this->operator(161);
+        $this->em->method('find')->with(CommunicationOperator::class, 161)->willReturn($operator);
+
+        $packages = $this->service->createBatch(new CreateCommunicationPackageBatchDto(
+            nameTemplate: 'Cubacel {monto}',
+            descriptionTemplate: 'Cubacel {monto}',
+            fromAmount: 100.0,
+            toAmount: 300.0,
+            step: 100.0,
+            destinationCurrency: 'CUP',
+            operatorId: 161,
+        ));
+
+        $this->assertCount(3, $packages);
+        foreach ($packages as $package) {
+            $this->assertSame($operator, $package->getOperator());
+        }
+    }
+
+    public function testCreateBatchWithUnknownOperatorPersistsNothing(): void
+    {
+        $this->em->method('find')->willReturn(null);
+        $this->em->expects($this->never())->method('persist');
+
+        $this->expectException(MyCurrentException::class);
+
+        $this->service->createBatch(new CreateCommunicationPackageBatchDto(
+            nameTemplate: 'X {monto}',
+            descriptionTemplate: 'X {monto}',
+            fromAmount: 100.0,
+            toAmount: 200.0,
+            step: 100.0,
+            destinationCurrency: 'CUP',
+            operatorId: 999,
+        ));
+    }
 }
