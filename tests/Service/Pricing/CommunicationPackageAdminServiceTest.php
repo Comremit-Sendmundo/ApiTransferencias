@@ -6,6 +6,7 @@ use App\DTO\CreateCommunicationPackageBatchDto;
 use App\DTO\CreateCommunicationPackageDto;
 use App\DTO\UpdateCommunicationPackageDto;
 use App\Entity\CommunicationContract;
+use App\Entity\CommunicationOperator;
 use App\Entity\CommunicationPackage;
 use App\Entity\CommunicationProduct;
 use App\Entity\Environment;
@@ -327,5 +328,121 @@ class CommunicationPackageAdminServiceTest extends TestCase
             'priceCurrency' => 'USD',
             'requiredIdentifierFields' => [['phoneNumber', 'accountIdentifier']],
         ]], $coverage);
+    }
+
+    private function operator(int $id): CommunicationOperator
+    {
+        return (new CommunicationOperator())->setId($id)->setName('Cubacel');
+    }
+
+    private function validCreateDto(?int $operatorId): CreateCommunicationPackageDto
+    {
+        return new CreateCommunicationPackageDto(
+            name: 'Recarga',
+            description: 'Recarga',
+            destinationAmount: 500.0,
+            destinationCurrency: 'CUP',
+            operatorId: $operatorId,
+        );
+    }
+
+    public function testCreateLinksOperator(): void
+    {
+        $operator = $this->operator(161);
+        $this->em->method('find')->with(CommunicationOperator::class, 161)->willReturn($operator);
+
+        $package = $this->service->create($this->validCreateDto(161));
+
+        $this->assertSame($operator, $package->getOperator());
+    }
+
+    public function testCreateWithoutOperatorLeavesItNull(): void
+    {
+        $this->em->expects($this->never())->method('find');
+
+        $this->assertNull($this->service->create($this->validCreateDto(null))->getOperator());
+    }
+
+    public function testCreateWithUnknownOperatorFailsWith404(): void
+    {
+        $this->em->method('find')->willReturn(null);
+        $this->em->expects($this->never())->method('persist');
+
+        try {
+            $this->service->create($this->validCreateDto(999));
+            $this->fail('Se esperaba MyCurrentException');
+        } catch (MyCurrentException $e) {
+            $this->assertSame(404, $e->getCode());
+        }
+    }
+
+    public function testUpdateChangesOperator(): void
+    {
+        $operator = $this->operator(161);
+        $this->em->method('find')->willReturn($operator);
+        $package = new CommunicationPackage();
+
+        $this->service->update($package, new UpdateCommunicationPackageDto(operatorId: 161));
+
+        $this->assertSame($operator, $package->getOperator());
+    }
+
+    public function testUpdateWithoutOperatorKeepsTheCurrentOne(): void
+    {
+        $package = new CommunicationPackage();
+        $package->setOperator($this->operator(161));
+
+        $this->service->update($package, new UpdateCommunicationPackageDto(name: 'Otro nombre'));
+
+        $this->assertSame(161, $package->getOperator()?->getId());
+    }
+
+    public function testUpdateClearOperatorRemovesIt(): void
+    {
+        $package = new CommunicationPackage();
+        $package->setOperator($this->operator(161));
+
+        $this->service->update($package, new UpdateCommunicationPackageDto(clearOperator: true));
+
+        $this->assertNull($package->getOperator());
+    }
+
+    public function testCreateBatchLinksTheSameOperatorToEveryPackage(): void
+    {
+        $operator = $this->operator(161);
+        $this->em->method('find')->with(CommunicationOperator::class, 161)->willReturn($operator);
+
+        $packages = $this->service->createBatch(new CreateCommunicationPackageBatchDto(
+            nameTemplate: 'Cubacel {monto}',
+            descriptionTemplate: 'Cubacel {monto}',
+            fromAmount: 100.0,
+            toAmount: 300.0,
+            step: 100.0,
+            destinationCurrency: 'CUP',
+            operatorId: 161,
+        ));
+
+        $this->assertCount(3, $packages);
+        foreach ($packages as $package) {
+            $this->assertSame($operator, $package->getOperator());
+        }
+    }
+
+    public function testCreateBatchWithUnknownOperatorPersistsNothing(): void
+    {
+        $this->em->method('find')->willReturn(null);
+        $this->em->expects($this->never())->method('persist');
+
+        $this->expectException(MyCurrentException::class);
+
+        $this->service->createBatch(new CreateCommunicationPackageBatchDto(
+            nameTemplate: 'X {monto}',
+            descriptionTemplate: 'X {monto}',
+            fromAmount: 100.0,
+            toAmount: 200.0,
+            step: 100.0,
+            destinationCurrency: 'CUP',
+            operatorId: 999,
+        ));
     }
 }
