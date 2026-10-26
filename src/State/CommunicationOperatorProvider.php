@@ -33,7 +33,8 @@ final class CommunicationOperatorProvider implements ProviderInterface
 
         /** @var Request|null $request */
         $request = $context['request'] ?? null;
-        $country = $request?->query->get('country');
+        // `country_iso_code` es el parámetro; `country` se mantiene como alias (ya lo usa el dashboard).
+        $country = $request?->query->get('country_iso_code') ?: $request?->query->get('country');
         $search = $request?->query->get('search');
 
         $operators = $this->repository->search(

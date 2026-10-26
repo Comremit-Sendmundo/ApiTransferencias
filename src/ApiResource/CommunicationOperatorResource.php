@@ -6,11 +6,13 @@ use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Parameter as OpenApiParameter;
 use App\Entity\CommunicationOperator;
 use App\State\CommunicationOperatorProvider;
 
 /**
- * Operador móvil (DTOne) en la API pública: `GET /communication/operators` (filtros `country` en ISO alfa-3 y `search`) y
+ * Operador móvil (DTOne) en la API pública: `GET /communication/operators` (filtros `country_iso_code`, ISO alfa-3, y `search`; `country` sigue valiendo como alias) y
  * `GET /communication/operators/{id}`. Es una vista de solo lectura de CommunicationOperator; la administración vive en
  * el dashboard. El listado no trae el icono (`icon` null, `has_icon` indica si existe): se pide en el detalle.
  */
@@ -21,6 +23,22 @@ use App\State\CommunicationOperatorProvider;
             uriTemplate: '/communication/operators',
             description: 'Operadores móviles disponibles, con su país y regiones',
             provider: CommunicationOperatorProvider::class,
+            openapi: new OpenApiOperation(
+                parameters: [
+                    new OpenApiParameter(
+                        name: 'country_iso_code',
+                        in: 'query',
+                        description: 'Código ISO 3166-1 alfa-3 del país (por ejemplo, CUB); sin distinguir mayúsculas. Devuelve solo los operadores de ese país.',
+                        schema: ['type' => 'string', 'minLength' => 3, 'maxLength' => 3, 'example' => 'CUB'],
+                    ),
+                    new OpenApiParameter(
+                        name: 'search',
+                        in: 'query',
+                        description: 'Texto a buscar en el nombre del operador o del país; si es un número, también coincide con el id del operador.',
+                        schema: ['type' => 'string'],
+                    ),
+                ],
+            ),
         ),
         new Get(
             uriTemplate: '/communication/operators/{id}',

@@ -60,6 +60,24 @@ class DashboardCommunicationOperatorsControllerTest extends TestCase
         $this->assertSame([['name' => 'La Habana', 'code' => 'CU-03']], $body['results'][0]['regions']);
     }
 
+    public function testFiltraPorCountryIsoCode(): void
+    {
+        $this->service->expects($this->once())->method('list')->with('CUB', null, 0, 20)
+            ->willReturn(['results' => [$this->cubacel()], 'hasNext' => false]);
+
+        $response = $this->controller->list(new Request(['country_iso_code' => 'CUB']));
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testCountryIsoCodeGanaSobreCountry(): void
+    {
+        $this->service->expects($this->once())->method('list')->with('CUB', null, 0, 20)
+            ->willReturn(['results' => [], 'hasNext' => false]);
+
+        $this->controller->list(new Request(['country_iso_code' => 'CUB', 'country' => 'GMB']));
+    }
+
     public function testLaListaNoIncluyeElIconoCompleto(): void
     {
         $operator = $this->cubacel()->setIcon('data:image/png;base64,AAAA');
