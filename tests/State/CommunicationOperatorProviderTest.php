@@ -73,6 +73,27 @@ class CommunicationOperatorProviderTest extends TestCase
         $this->assertTrue($items[0]->hasIcon);
     }
 
+    public function testCollectionFiltersByCountryIsoCode(): void
+    {
+        $request = new Request(['country_iso_code' => 'CUB']);
+        $this->repository->expects($this->once())
+            ->method('search')
+            ->with('CUB', null, $this->anything(), 0)
+            ->willReturn([$this->operator(161)]);
+
+        $items = iterator_to_array($this->provider->provide(new GetCollection(), [], ['request' => $request]), false);
+
+        $this->assertSame(161, $items[0]->id);
+    }
+
+    public function testCountryIsoCodeWinsOverCountry(): void
+    {
+        $request = new Request(['country_iso_code' => 'CUB', 'country' => 'GMB']);
+        $this->repository->expects($this->once())->method('search')->with('CUB', null, $this->anything(), 0)->willReturn([]);
+
+        $this->provider->provide(new GetCollection(), [], ['request' => $request]);
+    }
+
     public function testCollectionPassesCountryAndSearchFilters(): void
     {
         $request = new Request(['country' => 'cub', 'search' => 'cuba']);

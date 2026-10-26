@@ -36,7 +36,8 @@ class DashboardCommunicationOperatorsController extends AbstractController
         $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
 
         $result = $this->operatorService->list(
-            $request->query->get('country'),
+            // `country_iso_code` es el nombre del parámetro (igual que en la API pública); `country` queda como alias.
+            $request->query->get('country_iso_code') ?: $request->query->get('country'),
             $request->query->get('search'),
             $page,
             $limit,
