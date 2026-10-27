@@ -149,11 +149,13 @@ class CommunicationPackageAdminService
      * Expuesto (no solo uso interno de createBatch()) para que
      * CommunicationPromotionService::updatePackageMetadata() pueda
      * re-renderizar name/description contra el destinationAmount propio de
-     * cada paquete YA existente al editar una promoción V2.
+     * cada paquete YA existente al editar una promoción V2. Acepta
+     * "{destinationAmount}" como alias de "{monto}" (nombre del campo del
+     * paquete, que es lo que se tiende a escribir).
      */
     public function renderTemplate(string $template, float $amount): string
     {
-        return str_replace('{monto}', self::formatAmount($amount), $template);
+        return str_replace(['{monto}', '{destinationAmount}'], self::formatAmount($amount), $template);
     }
 
     /**
