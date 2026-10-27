@@ -134,6 +134,14 @@ class CommunicationPackageAdminServiceTest extends TestCase
         $this->assertSame('CUP', $packages[0]->getDestinationCurrency());
     }
 
+    public function testRenderTemplateAcceptsDestinationAmountAsAliasOfMonto(): void
+    {
+        $this->assertSame(
+            'Cubacel 600 CUP — 600',
+            $this->service->renderTemplate('Cubacel {destinationAmount} CUP — {monto}', 600.0),
+        );
+    }
+
     public function testCreateBatchWithSingleAmountWhenFromEqualsToGeneratesOnePackage(): void
     {
         $dto = new CreateCommunicationPackageBatchDto(
