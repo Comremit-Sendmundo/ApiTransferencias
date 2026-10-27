@@ -5,6 +5,7 @@ namespace App\Service\Pricing;
 use App\DTO\CreateCommunicationPackageBatchDto;
 use App\DTO\CreateCommunicationPackageDto;
 use App\DTO\UpdateCommunicationPackageDto;
+use App\Entity\CommunicationOperator;
 use App\Entity\CommunicationPackage;
 use App\Entity\CommunicationProduct;
 use App\Entity\Environment;
@@ -63,6 +64,9 @@ class CommunicationPackageAdminService
         $package->setTags($dto->getTags() ?? []);
         $package->setService($dto->getService() ?? []);
         $package->setValidity($dto->getValidity());
+        if ($dto->getOperatorId() !== null) {
+            $package->setOperator($this->findOperator($dto->getOperatorId()));
+        }
         $this->applyCreditBenefitDefaults($package);
 
         $this->em->persist($package);
@@ -101,6 +105,7 @@ class CommunicationPackageAdminService
         $currency = strtoupper((string) $dto->getDestinationCurrency());
         $nameTemplate = (string) $dto->getNameTemplate();
         $descriptionTemplate = (string) $dto->getDescriptionTemplate();
+        $operator = $dto->getOperatorId() !== null ? $this->findOperator($dto->getOperatorId()) : null;
 
         $packages = [];
         for ($i = 0; $i < $count; $i++) {
@@ -128,6 +133,7 @@ class CommunicationPackageAdminService
             $package->setTags($dto->getTags() ?? []);
             $package->setService($dto->getService() ?? []);
             $package->setValidity($dto->getValidity());
+            $package->setOperator($operator);
             $this->applyCreditBenefitDefaults($package);
 
             $this->em->persist($package);
@@ -282,11 +288,26 @@ class CommunicationPackageAdminService
         if ($dto->getValidity() !== null) {
             $package->setValidity($dto->getValidity());
         }
+        if ($dto->getClearOperator() === true) {
+            $package->setOperator(null);
+        } elseif ($dto->getOperatorId() !== null) {
+            $package->setOperator($this->findOperator($dto->getOperatorId()));
+        }
         $this->applyCreditBenefitDefaults($package);
 
         $this->em->flush();
 
         return $package;
+    }
+
+    private function findOperator(int $id): CommunicationOperator
+    {
+        $operator = $this->em->find(CommunicationOperator::class, $id);
+        if (!$operator instanceof CommunicationOperator) {
+            throw new MyCurrentException('OPERATOR_NOT_FOUND', 'Operator not found', 404);
+        }
+
+        return $operator;
     }
 
     public function toggle(CommunicationPackage $package): void

@@ -23,4 +23,6 @@ final class CommunicationPackageOutDto
     public bool $hasBindings = false;
     /** No nulo = paquete generado por rango para esta promoción (ver CommunicationPackage::$promotion). */
     public ?int $promotionId = null;
+    /** Operador asignado (id, nombre y país) o null. */
+    public ?array $operator = null;
 }
