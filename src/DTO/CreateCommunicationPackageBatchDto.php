@@ -11,8 +11,8 @@ use Symfony\Component\Validator\Context\ExecutionContextInterface;
  * Alta en lote de CommunicationPackage (catálogo agnóstico de proveedor,
  * V2) — genera un paquete por cada monto en el rango [fromAmount,
  * toAmount] saltando de `step` en `step` (ambos extremos incluidos).
- * `nameTemplate`/`descriptionTemplate` admiten el placeholder "{monto}",
- * sustituido por el monto de cada paquete generado — ej. "Cubacel {monto}
+ * `nameTemplate`/`descriptionTemplate` admiten el placeholder "{monto}"
+ * (o su alias "{destinationAmount}"), sustituido por el monto de cada paquete generado — ej. "Cubacel {monto}
  * CUP" con fromAmount=100, toAmount=300, step=100 genera "Cubacel 100 CUP",
  * "Cubacel 200 CUP", "Cubacel 300 CUP". El resto de campos (benefits, tags,
  * service, validity, knowMore, displayOrder, vigencia) se aplican
