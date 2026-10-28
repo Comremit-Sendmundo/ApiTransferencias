@@ -18,6 +18,7 @@ use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Serializer\Attribute\Context;
 use Symfony\Component\Serializer\Attribute\Groups;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
  * Catálogo agnóstico de proveedor (rediseño V2 — reemplaza a
@@ -385,6 +386,14 @@ class CommunicationPackage
     private ?CommunicationPromotions $promotion = null;
 
     /**
+     * Operador (DTOne) al que pertenece el paquete — opcional, se asigna a mano desde el dashboard. Si se borra el
+     * operador, el paquete se queda sin él (SET NULL) en vez de desaparecer.
+     */
+    #[ORM\ManyToOne(targetEntity: CommunicationOperator::class)]
+    #[ORM\JoinColumn(name: 'operator_id', nullable: true, onDelete: 'SET NULL')]
+    private ?CommunicationOperator $operator = null;
+
+    /**
      * Lado inverso de CommunicationContract::$packages — solo para el guard
      * de borrado (CommunicationPackageAdminService::delete()): un paquete
      * con al menos un contrato no se puede borrar (FK RESTRICT en la tabla
@@ -709,6 +718,61 @@ class CommunicationPackage
     public function getCurrency(): ?string
     {
         return $this->resolvedOffer?->currency;
+    }
+
+    public function getOperator(): ?CommunicationOperator
+    {
+        return $this->operator;
+    }
+
+    public function setOperator(?CommunicationOperator $operator): static
+    {
+        $this->operator = $operator;
+
+        return $this;
+    }
+
+    /**
+     * Resumen del operador para el catálogo público (`operator`, null si el paquete no tiene). Sin icono ni metadatos
+     * para no engordar cada fila del listado: el detalle completo está en GET /communication/operators/{id}.
+     *
+     * @return array{id: int, name: string, country: array{name: string, iso_code: string}}|null
+     */
+    #[ApiProperty(
+        description: 'Operador (DTOne) al que pertenece el paquete; null si no tiene. El detalle completo está en GET /communication/operators/{id}.',
+        openapiContext: [
+            'type' => 'object',
+            'nullable' => true,
+            'required' => ['id', 'name', 'country'],
+            'properties' => [
+                'id' => ['type' => 'integer', 'example' => 161],
+                'name' => ['type' => 'string', 'example' => 'Cubacel'],
+                'country' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'example' => 'Cuba'],
+                        'iso_code' => ['type' => 'string', 'example' => 'CUB'],
+                    ],
+                ],
+            ],
+        ],
+    )]
+    #[Groups(['comPackage:read'])]
+    #[SerializedName('operator')]
+    public function getOperatorSummary(): ?array
+    {
+        if ($this->operator === null) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $this->operator->getId(),
+            'name' => (string) $this->operator->getName(),
+            'country' => [
+                'name' => (string) $this->operator->getCountryName(),
+                'iso_code' => (string) $this->operator->getCountryIsoCode(),
+            ],
+        ];
     }
 
     public function getPromotion(): ?CommunicationPromotions

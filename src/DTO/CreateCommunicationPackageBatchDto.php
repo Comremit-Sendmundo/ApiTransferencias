@@ -113,6 +113,9 @@ class CreateCommunicationPackageBatchDto implements IInput
     ])]
     protected ?array $validity;
 
+    #[Assert\Positive]
+    protected ?int $operatorId;
+
     public function __construct(
         ?string $nameTemplate = null,
         ?string $descriptionTemplate = null,
@@ -129,6 +132,7 @@ class CreateCommunicationPackageBatchDto implements IInput
         ?array $tags = null,
         ?array $service = null,
         ?array $validity = null,
+        ?int $operatorId = null,
     ) {
         $this->nameTemplate = $nameTemplate;
         $this->descriptionTemplate = $descriptionTemplate;
@@ -145,6 +149,7 @@ class CreateCommunicationPackageBatchDto implements IInput
         $this->tags = $tags;
         $this->service = $service;
         $this->validity = $validity;
+        $this->operatorId = $operatorId;
     }
 
     #[Assert\Callback]
@@ -207,4 +212,7 @@ class CreateCommunicationPackageBatchDto implements IInput
 
     public function getValidity(): ?array { return $this->validity; }
     public function setValidity(?array $v): void { $this->validity = $v; }
+
+    public function getOperatorId(): ?int { return $this->operatorId; }
+    public function setOperatorId(?int $v): void { $this->operatorId = $v; }
 }
