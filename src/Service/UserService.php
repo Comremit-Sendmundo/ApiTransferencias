@@ -6,6 +6,7 @@ use App\DTO\AccountPermission;
 use App\DTO\ActivateAccountDto;
 use App\DTO\ForgotPassword;
 use App\DTO\ResetPassword;
+use App\DTO\UpdateProfileDto;
 use App\Entity\Account;
 use App\Entity\Client;
 use App\EntityPaginator\PaginatorResponse;
@@ -84,17 +85,19 @@ class UserService extends CommonService
         return $this->em->getRepository(User::class)->find($id);
     }
 
-    public function update(User $user): User
+    /**
+     * Usuario autenticado, tal como está guardado, con el que se renueva la sesión. Nada del cuerpo de la
+     * petición forma parte de él.
+     */
+    public function update(UpdateProfileDto $dto): User
     {
         $userAuth = $this->security->getUser();
-        if (!$userAuth instanceof User || $userAuth->getId() !== $user->getId()) {
+        if (!$userAuth instanceof User || ($dto->getId() !== null && $dto->getId() !== $userAuth->getId())) {
             throw new AccessDeniedException();
         }
-        $currentUser = $this->em->getRepository(User::class)->find($userAuth->getId());
-        $currentUser?->setLangPreference($userAuth->getLangPreference());
-        $this->em->flush();
 
-        return $user;
+        return $this->em->getRepository(User::class)->find($userAuth->getId())
+            ?? throw new AccessDeniedException();
     }
 
     /**
