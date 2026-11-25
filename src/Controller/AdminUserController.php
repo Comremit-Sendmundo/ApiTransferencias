@@ -10,6 +10,7 @@ use App\DTO\Out\UserOutDto;
 use App\Entity\User;
 use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Service\UserPresenter;
 use App\Service\UserService;
 use App\Util\DashboardUtil;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -26,6 +27,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class AdminUserController extends AbstractController
 {
     public function __construct(
+        private readonly UserPresenter $userPresenter,
         private readonly UserService $userService,
         #[Autowire(service: 'limiter.resend_activation')]
         private readonly RateLimiterFactory $resendActivationLimiter,
@@ -39,9 +41,15 @@ class AdminUserController extends AbstractController
         $page = $request->query->getInt('page');
         $limit = $request->query->getInt('limit', DashboardUtil::$LIMIT_DEFAULT);
 
-        return $this->json([
-            $this->userService->allUsers($page, $limit),
-        ]);
+        $users = $this->userService->allUsers($page, $limit);
+
+        return $this->json([[
+            'page'       => $users->getPage(),
+            'limit'      => $users->getLimit(),
+            'total'      => $users->getTotal(),
+            'totalPages' => $users->getTotalPages(),
+            'results'    => array_map($this->userPresenter->present(...), $users->getResults()),
+        ]]);
     }
 
     #[Route('/{id}/resend-activation', name: 'admin_user_resend_activation', methods: ['POST'])]

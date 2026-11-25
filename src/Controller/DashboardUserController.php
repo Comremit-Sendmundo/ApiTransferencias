@@ -13,6 +13,7 @@ use App\Entity\Client;
 use App\Entity\User;
 use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Service\UserPresenter;
 use App\Service\UserManagementService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -43,6 +44,7 @@ class DashboardUserController extends AbstractController
     ];
 
     public function __construct(
+        private readonly UserPresenter $userPresenter,
         private readonly EntityManagerInterface $em,
         private readonly RoleHierarchyInterface $roleHierarchy,
         private readonly UserManagementService $userManagementService,
@@ -83,7 +85,7 @@ class DashboardUserController extends AbstractController
 
         $users = $qb->getQuery()->getResult();
 
-        return $this->json(array_map(fn(User $u) => $this->serializeUser($u), $users));
+        return $this->json(array_map(fn(User $u) => $this->userPresenter->present($u), $users));
     }
 
     #[Route('/{id}', name: 'dashboard_users_show', methods: ['GET'], requirements: ['id' => '\d+'])]
@@ -105,7 +107,7 @@ class DashboardUserController extends AbstractController
             return $access;
         }
 
-        return $this->json($this->serializeUser($user));
+        return $this->json($this->userPresenter->present($user));
     }
 
     #[Route('', name: 'dashboard_users_create', methods: ['POST'])]
@@ -136,7 +138,7 @@ class DashboardUserController extends AbstractController
             return $this->json(['error' => ['message' => $e->getMessage()]], $status);
         }
 
-        return $this->json($this->serializeUser($user), Response::HTTP_CREATED);
+        return $this->json($this->userPresenter->present($user), Response::HTTP_CREATED);
     }
 
     #[Route('/{id}', name: 'dashboard_users_update', methods: ['PATCH', 'PUT'], requirements: ['id' => '\d+'])]
@@ -171,7 +173,7 @@ class DashboardUserController extends AbstractController
             return $this->json(['error' => ['message' => $e->getMessage()]], $status);
         }
 
-        return $this->json($this->serializeUser($user));
+        return $this->json($this->userPresenter->present($user));
     }
 
     #[Route('/{id}/toggle', name: 'dashboard_users_toggle', methods: ['PATCH'], requirements: ['id' => '\d+'])]
@@ -305,37 +307,5 @@ class DashboardUserController extends AbstractController
     private function canAssignRole(User $currentUser, string $role): bool
     {
         return $this->getMaxRoleWeight($currentUser) > (self::ROLE_WEIGHT[$role] ?? 0);
-    }
-
-    private function serializeUser(User $user): array
-    {
-        $jp = $user->getJobPosition();
-
-        return [
-            'id' => $user->getId(),
-            'email' => $user->getEmail(),
-            'firstName' => $user->getFirstName(),
-            'middleName' => $user->getMiddleName(),
-            'lastName' => $user->getLastName(),
-            'roles' => $user->getRoles(),
-            'jobTitle' => $user->getJobTitle(),
-            'jobPosition' => $jp ? [
-                'id'   => $jp->getId(),
-                'code' => $jp->getCode(),
-                'name' => $jp->getName(),
-                'area' => $jp->getArea()?->value,
-            ] : null,
-            'phoneNumber' => $user->getPhoneNumber(),
-            'langPreference' => $user->getLangPreference(),
-            'isActive' => $user->isActive(),
-            'isCheckValidation' => $user->isCheckValidation(),
-            'twoFactorEnabled' => $user->isTwoFactorEnabled(),
-            'company' => $user->getCompany() ? [
-                'id' => $user->getCompany()->getId(),
-                'companyName' => $user->getCompany()->getCompanyName(),
-            ] : null,
-            'createdAt' => $user->getCreatedAt()?->format('c'),
-            'removedAt' => $user->getRemovedAt()?->format('c'),
-        ];
     }
 }
