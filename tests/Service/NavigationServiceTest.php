@@ -105,20 +105,20 @@ class NavigationServiceTest extends TestCase
         $this->service->getNavigationForUsers();
     }
 
-    public function testElAdministradorSoloConsultaPorSusRoles(): void
+    /** @dataProvider usuarios */
+    public function testTodosLosUsuariosConsultanPorSusRolesSuClienteYSuUsuario(bool $isAdmin, string $role): void
     {
-        $this->usuarioAutenticado(isAdmin: true, reachableRoles: ['ROLE_ADMIN', 'ROLE_USER']);
-        $this->repositorioDelMenu(['ROLE_ADMIN', 'ROLE_USER'], null, null);
+        $this->usuarioAutenticado(isAdmin: $isAdmin, reachableRoles: [$role, 'ROLE_USER']);
+        $this->repositorioDelMenu([$role, 'ROLE_USER'], 5, 2);
 
         $this->assertMenuConElItemPermitido($this->service->getNavigationForUsers());
     }
 
-    public function testElRestoDeUsuariosConsultaTambienPorSuClienteYUsuario(): void
+    /** @return iterable<string, array{bool, string}> */
+    public static function usuarios(): iterable
     {
-        $this->usuarioAutenticado(isAdmin: false, reachableRoles: ['ROLE_SYSTEM_ADMIN', 'ROLE_USER']);
-        $this->repositorioDelMenu(['ROLE_SYSTEM_ADMIN', 'ROLE_USER'], 5, 2);
-
-        $this->assertMenuConElItemPermitido($this->service->getNavigationForUsers());
+        yield 'administrador' => [true, 'ROLE_ADMIN'];
+        yield 'resto de usuarios' => [false, 'ROLE_SYSTEM_ADMIN'];
     }
 
     /** @param string[] $reachableRoles */
@@ -133,9 +133,7 @@ class NavigationServiceTest extends TestCase
         $user->method('getId')->willReturn(2);
 
         $this->security->method('getUser')->willReturn($user);
-        $this->security->method('isGranted')
-            ->with('ROLE_ADMIN')
-            ->willReturn($isAdmin);
+        $this->security->method('isGranted')->willReturn($isAdmin);
 
         $this->roleHierarchy->method('getReachableRoleNames')
             ->with([$reachableRoles[0]])

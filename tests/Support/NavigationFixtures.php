@@ -17,9 +17,6 @@ use App\Enums\NavigationTypeEnum;
  */
 trait NavigationFixtures
 {
-    /** Rol que no tiene ningún usuario: el permiso solo vale por cliente o por usuario. */
-    private const ROL_SIN_USUARIOS = 'ROLE_NADIE';
-
     /** Desactiva las semillas de la base de test; el rollback del test las deja como estaban. */
     private function aislarMenu(): void
     {
@@ -52,7 +49,7 @@ trait NavigationFixtures
 
     private function permiso(
         NavigationItem $item,
-        string $role = self::ROL_SIN_USUARIOS,
+        string $role,
         ?Client $client = null,
         ?User $user = null,
         bool $active = true,

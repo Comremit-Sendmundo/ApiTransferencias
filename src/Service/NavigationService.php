@@ -69,19 +69,13 @@ class NavigationService extends CommonService
             throw new AccessDeniedException();
         }
         $userRoles = $this->roleHierarchy->getReachableRoleNames($user->getRoles());
-        $companyId = $user->getCompany()?->getId();
-        $userId = $user->getId();
-        if ($this->security->isGranted('ROLE_ADMIN')) {
-            $companyId = null;
-            $userId = null;
-        }
 
         /** @var \App\Repository\NavigationItemRepository $repository */
         $repository = $this->em->getRepository(NavigationItem::class);
 
         return $this->menuBuilder->build(
             $repository->findAllForMenu(),
-            $repository->findPermittedItemIds($userRoles, $companyId, $userId),
+            $repository->findPermittedItemIds($userRoles, $user->getCompany()?->getId(), $user->getId()),
         );
     }
 }

@@ -2,11 +2,13 @@
 
 namespace App\DTO;
 
+use App\Entity\UserPermission;
 use Symfony\Component\Validator\Constraints as Assert;
 
 class CreateUserPermissionDto implements IInput
 {
     #[Assert\NotBlank]
+    #[Assert\Choice(choices: UserPermission::ASSIGNABLE_ROLES)]
     protected ?string $minRoleRequired;
 
     protected ?bool $isActive;
