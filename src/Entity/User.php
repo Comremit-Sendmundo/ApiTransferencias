@@ -2,7 +2,6 @@
 
 namespace App\Entity;
 
-use App\DTO\IInput;
 use App\Repository\UserRepository;
 use DateTimeImmutable;
 use Doctrine\Common\Collections\ArrayCollection;
@@ -12,11 +11,12 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Serializer\Attribute\Groups;
+use Symfony\Component\Serializer\Attribute\Ignore;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
 #[ORM\Table(name: '`user`')]
 #[ORM\HasLifecycleCallbacks]
-class User implements UserInterface, PasswordAuthenticatedUserInterface, IInput
+class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
     #[ORM\Id]
     #[ORM\GeneratedValue(strategy: 'SEQUENCE')]
@@ -91,7 +91,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, IInput
 
     #[ORM\OneToMany(mappedBy: 'userHistoric', targetEntity: UserPassword::class)]
     private Collection $historicPasswords;
-    private ?string $currentIp;
+    private ?string $currentIp = null;
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $status = null;
@@ -199,6 +199,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, IInput
     /**
      * @see PasswordAuthenticatedUserInterface
      */
+    #[Ignore]
     public function getPassword(): string
     {
         return $this->password;
@@ -384,6 +385,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, IInput
     /**
      * @return Collection<int, UserPassword>
      */
+    #[Ignore]
     public function getHistoricPasswords(): Collection
     {
         return $this->historicPasswords;
@@ -495,28 +497,35 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface, IInput
         return $this;
     }
 
+    #[Ignore]
     public function getTwoFactorSecret(): ?string { return $this->twoFactorSecret; }
     public function setTwoFactorSecret(?string $v): void { $this->twoFactorSecret = $v; }
 
     public function isTwoFactorEnabled(): bool { return $this->twoFactorEnabled; }
     public function setTwoFactorEnabled(bool $v): void { $this->twoFactorEnabled = $v; }
 
+    #[Ignore]
     public function getTwoFactorPendingToken(): ?string { return $this->twoFactorPendingToken; }
     public function setTwoFactorPendingToken(?string $v): void { $this->twoFactorPendingToken = $v; }
 
+    #[Ignore]
     public function getTwoFactorPendingTokenExpiresAt(): ?DateTimeImmutable { return $this->twoFactorPendingTokenExpiresAt; }
     public function setTwoFactorPendingTokenExpiresAt(?DateTimeImmutable $v): void { $this->twoFactorPendingTokenExpiresAt = $v; }
 
+    #[Ignore]
     public function getTwoFactorEmailCode(): ?string { return $this->twoFactorEmailCode; }
     public function setTwoFactorEmailCode(?string $v): void { $this->twoFactorEmailCode = $v; }
 
+    #[Ignore]
     public function getTwoFactorEmailCodeExpiresAt(): ?DateTimeImmutable { return $this->twoFactorEmailCodeExpiresAt; }
     public function setTwoFactorEmailCodeExpiresAt(?DateTimeImmutable $v): void { $this->twoFactorEmailCodeExpiresAt = $v; }
 
+    #[Ignore]
     public function getTwoFactorLastTimeStep(): ?int { return $this->twoFactorLastTimeStep === null ? null : (int) $this->twoFactorLastTimeStep; }
     public function setTwoFactorLastTimeStep(?int $v): void { $this->twoFactorLastTimeStep = $v === null ? null : (string) $v; }
 
     /** @return string[]|null */
+    #[Ignore]
     public function getTwoFactorBackupCodes(): ?array { return $this->twoFactorBackupCodes; }
     /** @param string[]|null $v */
     public function setTwoFactorBackupCodes(?array $v): void { $this->twoFactorBackupCodes = $v; }
