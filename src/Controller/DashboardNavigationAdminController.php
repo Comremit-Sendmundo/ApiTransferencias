@@ -74,7 +74,7 @@ class DashboardNavigationAdminController extends AbstractController
         try {
             $item = $this->navigationItemService->createItem($dto);
         } catch (MyCurrentException $e) {
-            return $this->json(['error' => ['message' => $e->getMessage()]], $e->getCode());
+            return $this->domainError($e);
         }
 
         return $this->json($this->normalizeItem($item), Response::HTTP_CREATED);
@@ -89,7 +89,11 @@ class DashboardNavigationAdminController extends AbstractController
             return $this->json(['error' => ['message' => 'Item not found']], Response::HTTP_NOT_FOUND);
         }
 
-        $item = $this->navigationItemService->updateItem($item, $dto);
+        try {
+            $item = $this->navigationItemService->updateItem($item, $dto);
+        } catch (MyCurrentException $e) {
+            return $this->domainError($e);
+        }
 
         return $this->json($this->normalizeItem($item));
     }
@@ -162,7 +166,7 @@ class DashboardNavigationAdminController extends AbstractController
         try {
             $permission = $this->navigationItemService->createPermission($item, $dto);
         } catch (MyCurrentException $e) {
-            return $this->json(['error' => ['message' => $e->getMessage()]], $e->getCode());
+            return $this->domainError($e);
         }
 
         return $this->json(
@@ -175,7 +179,12 @@ class DashboardNavigationAdminController extends AbstractController
     }
 
     #[Route('/permissions/{id}', name: 'dashboard_nav_permissions_update', methods: ['PUT'])]
-    #[DashboardEndpoint(summary: 'Actualizar permiso', tag: 'Navigation Admin', requestDto: UpdateUserPermissionDto::class)]
+    #[DashboardEndpoint(
+        summary: 'Actualizar permiso',
+        description: 'Edición parcial: un campo omitido no cambia. Enviar null en clientId o userId quita el cliente o el usuario del permiso; minRoleRequired e isActive no admiten null. El usuario debe pertenecer al cliente con el que quede el permiso.',
+        tag: 'Navigation Admin',
+        requestDto: UpdateUserPermissionDto::class,
+    )]
     public function updatePermission(int $id, UpdateUserPermissionDto $dto): JsonResponse
     {
         $permission = $this->em->getRepository(UserPermission::class)->find($id);
@@ -183,7 +192,11 @@ class DashboardNavigationAdminController extends AbstractController
             return $this->json(['error' => ['message' => 'Permission not found']], Response::HTTP_NOT_FOUND);
         }
 
-        $permission = $this->navigationItemService->updatePermission($permission, $dto);
+        try {
+            $permission = $this->navigationItemService->updatePermission($permission, $dto);
+        } catch (MyCurrentException $e) {
+            return $this->domainError($e);
+        }
 
         return $this->json(
             $this->serializer->normalize($permission, 'json', [
@@ -208,6 +221,17 @@ class DashboardNavigationAdminController extends AbstractController
     }
 
     // ─── Helpers ────────────────────────────────────────────
+
+    /** Sin capturarla, el ExceptionListener respondería 400 a cualquier error de dominio. */
+    private function domainError(MyCurrentException $e): JsonResponse
+    {
+        $status = $e->getCode();
+        if ($status < 100 || $status >= 600) {
+            $status = Response::HTTP_BAD_REQUEST;
+        }
+
+        return $this->json(['error' => ['message' => $e->getMessage(), 'code' => $e->getCodeWork()]], $status);
+    }
 
     private function normalizeItem(NavigationItem $item): array
     {

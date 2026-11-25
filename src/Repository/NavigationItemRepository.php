@@ -35,7 +35,8 @@ class NavigationItemRepository extends ServiceEntityRepository
     }
 
     /**
-     * Devuelve los IDs de parent y child a los que el usuario tiene acceso.
+     * Devuelve los IDs de parent y child a los que el usuario tiene acceso, según los permisos que le aplican
+     * (ver findPermittedItemIds).
      */
     public function accessIds(array $roles, ?int $clientId = null, ?int $userId = null): array
     {
@@ -91,46 +92,44 @@ class NavigationItemRepository extends ServiceEntityRepository
     /**
      * IDs de los items con permiso propio, sin añadir padres ni hijos.
      *
-     * Hay permiso si existe uno activo que coincida por:
-     * - Rol: su minRoleRequired está en los roles del usuario
-     * - Client: el permiso está asignado al client del usuario
-     * - Usuario: el permiso está asignado directamente al usuario
+     * Un permiso activo aplica si cumple a la vez:
+     * - Rol: su minRoleRequired está en los roles alcanzables del usuario
+     * - Client: no tiene cliente o es el del usuario
+     * - Usuario: no tiene usuario o es él
+     *
+     * Los permisos de un item son alternativas: basta con que aplique uno. No hay excepción para administradores.
+     *
+     * @param string[] $roles roles alcanzables, ya resueltos con la jerarquía
      *
      * @return list<int>
      */
     public function findPermittedItemIds(array $roles, ?int $clientId, ?int $userId): array
     {
+        if ($roles === []) {
+            return [];
+        }
+
         $qb = $this->getEntityManager()->createQueryBuilder()
             ->select('IDENTITY(up.item) as itemId')
             ->from(UserPermission::class, 'up')
             ->where('up.isActive = :is_active')
-            ->setParameter('is_active', true);
+            ->andWhere('up.minRoleRequired IN (:roles)')
+            ->setParameter('is_active', true)
+            ->setParameter('roles', $roles);
 
-        $conditions = [];
-
-        // Condición por rol: el minRoleRequired debe estar en los roles del usuario
-        if (!empty($roles)) {
-            $conditions[] = 'up.minRoleRequired IN (:roles)';
-            $qb->setParameter('roles', $roles);
+        if ($clientId === null) {
+            $qb->andWhere('up.client IS NULL');
+        } else {
+            $qb->andWhere('up.client IS NULL OR up.client = :clientId')
+                ->setParameter('clientId', $clientId);
         }
 
-        // Condición por client
-        if ($clientId !== null) {
-            $conditions[] = 'up.client = :clientId';
-            $qb->setParameter('clientId', $clientId);
+        if ($userId === null) {
+            $qb->andWhere('up.userInfo IS NULL');
+        } else {
+            $qb->andWhere('up.userInfo IS NULL OR up.userInfo = :userId')
+                ->setParameter('userId', $userId);
         }
-
-        // Condición por usuario específico
-        if ($userId !== null) {
-            $conditions[] = 'up.userInfo = :userId';
-            $qb->setParameter('userId', $userId);
-        }
-
-        if (empty($conditions)) {
-            return [];
-        }
-
-        $qb->andWhere(implode(' OR ', $conditions));
 
         $rows = $qb->getQuery()->getScalarResult();
 
@@ -138,7 +137,8 @@ class NavigationItemRepository extends ServiceEntityRepository
     }
 
     /**
-     * IDs con permiso propio más el padre directo de cada uno (los usa accessIds).
+     * IDs con permiso propio (rol, cliente y usuario a la vez, ver findPermittedItemIds) más el padre directo
+     * de cada uno; los usa accessIds.
      *
      * @return int[]
      */

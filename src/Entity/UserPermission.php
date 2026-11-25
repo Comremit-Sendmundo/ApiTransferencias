@@ -10,6 +10,26 @@ use Symfony\Component\Serializer\Attribute\Groups;
 #[ORM\HasLifecycleCallbacks]
 class UserPermission
 {
+    /**
+     * Roles que puede exigir un permiso de menú. Los del mercado quedan fuera: no dan acceso al panel.
+     */
+    public const ASSIGNABLE_ROLES = [
+        'ROLE_USER',
+        'ROLE_SYSTEM_USER',
+        'ROLE_SYSTEM_SHOW',
+        'ROLE_SYSTEM_EDITOR',
+        'ROLE_SYSTEM_ADMIN',
+        'ROLE_API_USER',
+        'ROLE_COM_API_USER',
+        'ROLE_REM_API_USER',
+        'ROLE_API_EDITOR',
+        'ROLE_COM_API_ADMIN',
+        'ROLE_REM_API_ADMIN',
+        'ROLE_API_ADMIN',
+        'ROLE_ADMIN',
+        'ROLE_SUPER_ADMIN',
+    ];
+
     #[ORM\Id]
     #[ORM\GeneratedValue(strategy: 'SEQUENCE')]
     #[ORM\Column]

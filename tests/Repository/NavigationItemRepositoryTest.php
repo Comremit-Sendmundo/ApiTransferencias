@@ -34,31 +34,92 @@ class NavigationItemRepositoryTest extends FunctionalTestCase
 
     // ---- findPermittedItemIds ----
 
-    public function testElPermisoValePorRolClienteOUsuarioSinAnadirPadres(): void
+    /**
+     * Todas las combinaciones de un permiso: activo o no, rol alcanzado o no, y cliente y usuario vacíos, propios o ajenos.
+     *
+     * @dataProvider consultas
+     *
+     * @param list<string> $roles
+     * @param list<string> $esperados
+     */
+    public function testElPermisoExigeALaVezRolClienteYUsuario(array $roles, bool $conCliente, bool $conUsuario, array $esperados): void
     {
-        $client = $this->cliente();
-        $user = $this->usuario(['ROLE_SYSTEM_USER'], $client);
+        $propio = $this->cliente();
+        $yo = $this->usuario(['ROLE_SYSTEM_USER'], $propio);
+        $clientes = ['sin' => null, 'propio' => $propio, 'ajeno' => $this->cliente()];
+        $usuarios = ['sin' => null, 'propio' => $yo, 'ajeno' => $this->usuario(['ROLE_SYSTEM_USER'], $propio)];
         $raiz = $this->item('Raíz');
-        $porRol = $this->item('Por rol', $raiz);
-        $porCliente = $this->item('Por cliente', $raiz);
-        $porUsuario = $this->item('Por usuario', $raiz);
-        $ajeno = $this->item('Ajeno', $raiz);
-        $this->permiso($porRol, 'ROLE_SYSTEM_USER');
-        $this->permiso($porCliente, client: $client);
-        $this->permiso($porUsuario, user: $user);
-        $this->permiso($ajeno, client: $this->cliente());
+        $items = [];
+        foreach (['activo' => true, 'inactivo' => false] as $estado => $activo) {
+            foreach (['alcanzado' => 'ROLE_SYSTEM_USER', 'no alcanzado' => 'ROLE_SUPER_ADMIN'] as $nombreRol => $rol) {
+                foreach ($clientes as $nombreCliente => $cliente) {
+                    foreach ($usuarios as $nombreUsuario => $usuario) {
+                        $caso = "{$estado}, rol {$nombreRol}, cliente {$nombreCliente}, usuario {$nombreUsuario}";
+                        $items[$caso] = $this->item($caso, $raiz);
+                        $this->permiso($items[$caso], $rol, $cliente, $usuario, $activo);
+                    }
+                }
+            }
+        }
         $this->guardar();
 
-        $ids = $this->repository->findPermittedItemIds(['ROLE_SYSTEM_USER'], $client->getId(), $user->getId());
-
-        $this->assertTrue(array_is_list($ids));
-        $this->assertEqualsCanonicalizing(
-            [$porRol->getId(), $porCliente->getId(), $porUsuario->getId()],
-            $ids,
+        $ids = $this->repository->findPermittedItemIds(
+            $roles,
+            $conCliente ? $propio->getId() : null,
+            $conUsuario ? $yo->getId() : null,
         );
-        $this->assertSame([$porRol->getId()], $this->repository->findPermittedItemIds(['ROLE_SYSTEM_USER'], null, null));
-        $this->assertSame([$porCliente->getId()], $this->repository->findPermittedItemIds([], $client->getId(), null));
-        $this->assertSame([$porUsuario->getId()], $this->repository->findPermittedItemIds([], null, $user->getId()));
+
+        $casoPorId = [];
+        foreach ($items as $caso => $item) {
+            $casoPorId[$item->getId()] = $caso;
+        }
+        $this->assertTrue(array_is_list($ids));
+        // Ni el padre ni ningún otro item fuera de la matriz.
+        $this->assertSame([], array_values(array_diff($ids, array_keys($casoPorId))));
+        $this->assertEqualsCanonicalizing($esperados, array_map(static fn (int $id): string => $casoPorId[$id], $ids));
+    }
+
+    /** @return iterable<string, array{list<string>, bool, bool, list<string>}> */
+    public static function consultas(): iterable
+    {
+        $roles = ['ROLE_SYSTEM_USER', 'ROLE_USER'];
+
+        yield 'con cliente y usuario' => [$roles, true, true, [
+            'activo, rol alcanzado, cliente sin, usuario sin',
+            'activo, rol alcanzado, cliente sin, usuario propio',
+            'activo, rol alcanzado, cliente propio, usuario sin',
+            'activo, rol alcanzado, cliente propio, usuario propio',
+        ]];
+        yield 'usuario sin cliente' => [$roles, false, true, [
+            'activo, rol alcanzado, cliente sin, usuario sin',
+            'activo, rol alcanzado, cliente sin, usuario propio',
+        ]];
+        yield 'solo cliente' => [$roles, true, false, [
+            'activo, rol alcanzado, cliente sin, usuario sin',
+            'activo, rol alcanzado, cliente propio, usuario sin',
+        ]];
+        yield 'solo roles' => [$roles, false, false, [
+            'activo, rol alcanzado, cliente sin, usuario sin',
+        ]];
+        yield 'sin roles' => [[], true, true, []];
+    }
+
+    public function testVariosPermisosDeUnItemSonAlternativas(): void
+    {
+        $equis = $this->usuario(['ROLE_SYSTEM_ADMIN']);
+        $otro = $this->usuario(['ROLE_SYSTEM_ADMIN']);
+        $item = $this->item('Con alternativas');
+        $this->permiso($item, 'ROLE_SUPER_ADMIN');
+        $this->permiso($item, 'ROLE_SYSTEM_ADMIN', user: $equis);
+        $this->guardar();
+
+        $superAdmin = ['ROLE_SUPER_ADMIN', 'ROLE_SYSTEM_ADMIN'];
+        $sistema = ['ROLE_SYSTEM_ADMIN'];
+
+        $this->assertSame([$item->getId()], $this->repository->findPermittedItemIds($superAdmin, null, $otro->getId()));
+        $this->assertSame([$item->getId()], $this->repository->findPermittedItemIds($sistema, null, $equis->getId()));
+        $this->assertSame([], $this->repository->findPermittedItemIds($sistema, null, $otro->getId()));
+        $this->assertSame([], $this->repository->findPermittedItemIds(['ROLE_SYSTEM_USER'], null, $equis->getId()));
     }
 
     public function testUnPermisoInactivoNoCuenta(): void
@@ -75,7 +136,7 @@ class NavigationItemRepositoryTest extends FunctionalTestCase
         $primero = $this->item('Primero');
         $segundo = $this->item('Segundo');
         $this->permiso($primero, 'ROLE_SYSTEM_USER');
-        $this->permiso($primero, client: $client);
+        $this->permiso($primero, 'ROLE_SYSTEM_USER', client: $client);
         $this->permiso($segundo, 'ROLE_SYSTEM_USER');
         $this->guardar();
 
@@ -83,14 +144,6 @@ class NavigationItemRepositoryTest extends FunctionalTestCase
 
         $this->assertTrue(array_is_list($ids));
         $this->assertEqualsCanonicalizing([$primero->getId(), $segundo->getId()], $ids);
-    }
-
-    public function testSinCondicionesNoHayPermisosPropios(): void
-    {
-        $this->permiso($this->item('Raíz'), 'ROLE_SYSTEM_USER');
-        $this->guardar();
-
-        $this->assertSame([], $this->repository->findPermittedItemIds([], null, null));
     }
 
     // ---- findAllForMenu ----

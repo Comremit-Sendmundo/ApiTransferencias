@@ -150,30 +150,19 @@ class UserService extends CommonService
 
     public function createPayloadUser(User $user): array
     {
-        $roles = $user->getRoles();
-        $userRoles = [];
+        $userRoles = $this->roleHierarchy->getReachableRoleNames($user->getRoles());
         $accessIds = [];
-        try {
-            $userRoles = $this->roleHierarchy->getReachableRoleNames($roles);
-            $clientId = $user->getCompany()?->getId();
-            $userId = $user->getId();
-            if (!$this->security->isGranted('ROLE_ADMIN')) {
-                $clientId = null;
-                $userId = null;
+        /** @var \App\Repository\NavigationItemRepository $navRepo */
+        $navRepo = $this->em->getRepository(NavigationItem::class);
+        // Con el usuario evaluado y no con el de la petición: en el login todavía no hay sesión.
+        $allIds = $navRepo->accessIds($userRoles, $user->getCompany()?->getId(), $user->getId());
+        foreach ($allIds as $itemIds) {
+            if (!in_array($itemIds['parentId'], $accessIds, true)) {
+                $accessIds[] = $itemIds['parentId'];
             }
-            /** @var \App\Repository\NavigationItemRepository $navRepo */
-            $navRepo = $this->em->getRepository(NavigationItem::class);
-            $allIds = $navRepo->accessIds($userRoles, $clientId, $userId);
-            foreach ($allIds as $itemIds) {
-                if (!in_array($itemIds['parentId'], $accessIds, true)) {
-                    $accessIds[] = $itemIds['parentId'];
-                }
-                if (!in_array($itemIds['childId'], $accessIds, true)) {
-                    $accessIds[] = $itemIds['childId'];
-                }
+            if (!in_array($itemIds['childId'], $accessIds, true)) {
+                $accessIds[] = $itemIds['childId'];
             }
-        } catch (\Exception $e) {
-            $this->logger->error($e->getMessage());
         }
 
         return [

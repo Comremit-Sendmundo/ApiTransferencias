@@ -143,11 +143,31 @@ class NavigationControllerFunctionalTest extends FunctionalTestCase
         $grupo = $this->item('Grupo', type: NavigationTypeEnum::GROUP);
         $this->item('Sin permiso', $grupo, '/no', order: '1');
         $delCliente = $this->item('Del cliente', $grupo, '/si', order: '2');
-        $this->permiso($delCliente, client: $client);
+        $this->permiso($delCliente, 'ROLE_SYSTEM_USER', client: $client);
 
         $body = $this->decodificar($this->pedirMenu($user));
 
         self::assertSame([['Grupo' => [['Del cliente' => []]]]], $this->titulos($body->default));
+    }
+
+    public function testUnSuperAdministradorNoVeLosPermisosDeOtroUsuarioNiDeOtroCliente(): void
+    {
+        $propio = $this->cliente();
+        $ajeno = $this->cliente();
+        $user = $this->usuario(['ROLE_SUPER_ADMIN'], $propio);
+        $otro = $this->usuario(['ROLE_SYSTEM_USER'], $propio);
+        $this->permiso($this->item('1 General', link: '/general', order: '1'), 'ROLE_SUPER_ADMIN');
+        $this->permiso($this->item('2 Mi cliente', link: '/mi-cliente', order: '2'), 'ROLE_SYSTEM_USER', client: $propio);
+        $this->permiso($this->item('3 Mi usuario', link: '/mi-usuario', order: '3'), 'ROLE_SYSTEM_USER', user: $user);
+        $this->permiso($this->item('4 Otro cliente', link: '/otro-cliente', order: '4'), 'ROLE_SYSTEM_USER', client: $ajeno);
+        $this->permiso($this->item('5 Otro usuario', link: '/otro-usuario', order: '5'), 'ROLE_SYSTEM_USER', user: $otro);
+
+        $body = $this->decodificar($this->pedirMenu($user));
+
+        self::assertSame(
+            [['1 General' => []], ['2 Mi cliente' => []], ['3 Mi usuario' => []]],
+            $this->titulos($body->default),
+        );
     }
 
     public function testSinPermisosDevuelveLasCuatroClavesVacias(): void

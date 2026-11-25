@@ -4,10 +4,12 @@ namespace App\Tests\Service;
 
 use App\DTO\ForgotPassword;
 use App\DTO\ResetPassword;
+use App\Entity\NavigationItem;
 use App\Entity\User;
 use App\Entity\UserCode;
 use App\Entity\UserPassword;
 use App\Repository\EnvironmentRepository;
+use App\Repository\NavigationItemRepository;
 use App\Repository\SysConfigRepository;
 use App\Repository\UserCodeRepository;
 use App\Service\UserService;
@@ -75,6 +77,21 @@ class UserServiceTest extends TestCase
             $roleHierarchy,
             $this->messageBus,
         );
+    }
+
+    /** Una sesión sin accesos por un fallo de la consulta pasaría por una sesión válida. */
+    public function testCreatePayloadUserNoOcultaUnFalloAlConsultarLosAccesos(): void
+    {
+        $navRepo = $this->createMock(NavigationItemRepository::class);
+        $navRepo->method('accessIds')->willThrowException(new \RuntimeException('consulta fallida'));
+        $this->em->method('getRepository')
+            ->with(NavigationItem::class)
+            ->willReturn($navRepo);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('consulta fallida');
+
+        $this->service->createPayloadUser(new User());
     }
 
     public function testForgotPasswordReturnsSuccessWhenUserNotFound(): void

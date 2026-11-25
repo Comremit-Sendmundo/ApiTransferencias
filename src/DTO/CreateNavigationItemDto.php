@@ -2,7 +2,9 @@
 
 namespace App\DTO;
 
+use App\Entity\UserPermission;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Context\ExecutionContextInterface;
 
 class CreateNavigationItemDto implements IInput
 {
@@ -33,6 +35,7 @@ class CreateNavigationItemDto implements IInput
 
     protected ?array $data;
 
+    #[Assert\Choice(choices: UserPermission::ASSIGNABLE_ROLES)]
     protected ?string $minRoleRequired;
 
     protected ?int $clientId;
@@ -67,6 +70,17 @@ class CreateNavigationItemDto implements IInput
         $this->minRoleRequired = $minRoleRequired;
         $this->clientId        = $clientId;
         $this->userId          = $userId;
+    }
+
+    /** El permiso inicial del item solo se crea con rol: sin él, el cliente o el usuario se perderían. */
+    #[Assert\Callback]
+    public function validatePermissionRole(ExecutionContextInterface $context): void
+    {
+        if ($this->minRoleRequired === null && ($this->clientId !== null || $this->userId !== null)) {
+            $context->buildViolation('minRoleRequired es requerido con clientId o userId')
+                ->atPath('minRoleRequired')
+                ->addViolation();
+        }
     }
 
     public function getTitle(): ?string { return $this->title; }
