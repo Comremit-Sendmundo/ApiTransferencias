@@ -8,6 +8,8 @@ use App\Entity\Client;
 use App\Repository\EnvironmentRepository;
 use App\Repository\NavigationItemRepository;
 use App\Repository\SysConfigRepository;
+use App\Service\Navigation\NavigationMenuBuilder;
+use App\Service\Navigation\NavigationMenuNode;
 use App\Service\NavigationService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -56,6 +58,7 @@ class NavigationServiceTest extends TestCase
             $sysConfigRepo,
             $serializer,
             $this->roleHierarchy,
+            new NavigationMenuBuilder(),
         );
     }
 
@@ -102,123 +105,70 @@ class NavigationServiceTest extends TestCase
         $this->service->getNavigationForUsers();
     }
 
-    public function testGetNavigationForUsersAsAdmin(): void
+    public function testElAdministradorSoloConsultaPorSusRoles(): void
     {
+        $this->usuarioAutenticado(isAdmin: true, reachableRoles: ['ROLE_ADMIN', 'ROLE_USER']);
+        $this->repositorioDelMenu(['ROLE_ADMIN', 'ROLE_USER'], null, null);
+
+        $this->assertMenuConElItemPermitido($this->service->getNavigationForUsers());
+    }
+
+    public function testElRestoDeUsuariosConsultaTambienPorSuClienteYUsuario(): void
+    {
+        $this->usuarioAutenticado(isAdmin: false, reachableRoles: ['ROLE_SYSTEM_ADMIN', 'ROLE_USER']);
+        $this->repositorioDelMenu(['ROLE_SYSTEM_ADMIN', 'ROLE_USER'], 5, 2);
+
+        $this->assertMenuConElItemPermitido($this->service->getNavigationForUsers());
+    }
+
+    /** @param string[] $reachableRoles */
+    private function usuarioAutenticado(bool $isAdmin, array $reachableRoles): void
+    {
+        $company = $this->createMock(Client::class);
+        $company->method('getId')->willReturn(5);
+
         $user = $this->createMock(User::class);
-        $user->method('getRoles')->willReturn(['ROLE_ADMIN', 'ROLE_USER']);
-        $user->method('getCompany')->willReturn(null);
-        $user->method('getId')->willReturn(1);
+        $user->method('getRoles')->willReturn([$reachableRoles[0]]);
+        $user->method('getCompany')->willReturn($company);
+        $user->method('getId')->willReturn(2);
 
         $this->security->method('getUser')->willReturn($user);
         $this->security->method('isGranted')
             ->with('ROLE_ADMIN')
-            ->willReturn(true);
+            ->willReturn($isAdmin);
 
         $this->roleHierarchy->method('getReachableRoleNames')
-            ->willReturn(['ROLE_ADMIN', 'ROLE_USER']);
+            ->with([$reachableRoles[0]])
+            ->willReturn($reachableRoles);
+    }
 
-        $child = $this->createMock(NavigationItem::class);
-        $child->method('getId')->willReturn(10);
-
-        $children = new \Doctrine\Common\Collections\ArrayCollection([$child]);
-
+    /** @param string[] $roles */
+    private function repositorioDelMenu(array $roles, ?int $clientId, ?int $userId): void
+    {
         $item = $this->createMock(NavigationItem::class);
-        $item->method('getChildren')->willReturn($children);
+        $item->method('getId')->willReturn(10);
         $item->method('getLink')->willReturn('/dashboard');
+        $item->method('active')->willReturn(true);
 
         $navRepo = $this->createMock(NavigationItemRepository::class);
-        $navRepo->method('getAllowedItemIds')->willReturn([10]);
-        $navRepo->method('getNavigationByUserAndClient')->willReturn([$item]);
+        $navRepo->expects($this->once())
+            ->method('findPermittedItemIds')
+            ->with($roles, $clientId, $userId)
+            ->willReturn([10]);
+        $navRepo->expects($this->once())
+            ->method('findAllForMenu')
+            ->willReturn([['item' => $item, 'parentId' => null]]);
 
         $this->em->method('getRepository')
             ->with(NavigationItem::class)
             ->willReturn($navRepo);
-
-        $result = $this->service->getNavigationForUsers();
-
-        $this->assertCount(1, $result);
     }
 
-    public function testGetNavigationForUsersFiltersUnauthorizedChildren(): void
+    /** @param NavigationMenuNode[] $menu */
+    private function assertMenuConElItemPermitido(array $menu): void
     {
-        $company = $this->createMock(Client::class);
-        $company->method('getId')->willReturn(5);
-
-        $user = $this->createMock(User::class);
-        $user->method('getRoles')->willReturn(['ROLE_USER']);
-        $user->method('getCompany')->willReturn($company);
-        $user->method('getId')->willReturn(2);
-
-        $this->security->method('getUser')->willReturn($user);
-        $this->security->method('isGranted')
-            ->with('ROLE_ADMIN')
-            ->willReturn(false);
-
-        $this->roleHierarchy->method('getReachableRoleNames')
-            ->willReturn(['ROLE_USER']);
-
-        $allowedChild = $this->createMock(NavigationItem::class);
-        $allowedChild->method('getId')->willReturn(10);
-
-        $disallowedChild = $this->createMock(NavigationItem::class);
-        $disallowedChild->method('getId')->willReturn(20);
-
-        $children = new \Doctrine\Common\Collections\ArrayCollection([$allowedChild, $disallowedChild]);
-
-        $item = $this->createMock(NavigationItem::class);
-        $item->method('getChildren')->willReturn($children);
-        $item->method('getLink')->willReturn(null);
-        $item->expects($this->once())->method('removeChild')->with($disallowedChild);
-
-        $navRepo = $this->createMock(NavigationItemRepository::class);
-        $navRepo->method('getAllowedItemIds')->willReturn([10]);
-        $navRepo->method('getNavigationByUserAndClient')->willReturn([$item]);
-
-        $this->em->method('getRepository')
-            ->with(NavigationItem::class)
-            ->willReturn($navRepo);
-
-        $this->service->getNavigationForUsers();
-    }
-
-    public function testGetNavigationForUsersRemovesParentsWithNoChildrenAndNoLink(): void
-    {
-        $company = $this->createMock(Client::class);
-        $company->method('getId')->willReturn(5);
-
-        $user = $this->createMock(User::class);
-        $user->method('getRoles')->willReturn(['ROLE_USER']);
-        $user->method('getCompany')->willReturn($company);
-        $user->method('getId')->willReturn(2);
-
-        $this->security->method('getUser')->willReturn($user);
-        $this->security->method('isGranted')
-            ->with('ROLE_ADMIN')
-            ->willReturn(false);
-
-        $this->roleHierarchy->method('getReachableRoleNames')
-            ->willReturn(['ROLE_USER']);
-
-        $emptyChildren = new \Doctrine\Common\Collections\ArrayCollection();
-
-        $itemWithLink = $this->createMock(NavigationItem::class);
-        $itemWithLink->method('getChildren')->willReturn($emptyChildren);
-        $itemWithLink->method('getLink')->willReturn('/some-page');
-
-        $itemWithoutLink = $this->createMock(NavigationItem::class);
-        $itemWithoutLink->method('getChildren')->willReturn($emptyChildren);
-        $itemWithoutLink->method('getLink')->willReturn(null);
-
-        $navRepo = $this->createMock(NavigationItemRepository::class);
-        $navRepo->method('getAllowedItemIds')->willReturn([]);
-        $navRepo->method('getNavigationByUserAndClient')->willReturn([$itemWithLink, $itemWithoutLink]);
-
-        $this->em->method('getRepository')
-            ->with(NavigationItem::class)
-            ->willReturn($navRepo);
-
-        $result = $this->service->getNavigationForUsers();
-
-        $this->assertCount(1, $result);
+        $this->assertCount(1, $menu);
+        $this->assertSame(10, $menu[0]->item->getId());
+        $this->assertSame([], $menu[0]->children);
     }
 }

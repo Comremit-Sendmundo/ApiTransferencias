@@ -35,40 +35,6 @@ class NavigationItemRepository extends ServiceEntityRepository
     }
 
     /**
-     * Devuelve los items de navegación filtrados por permisos del usuario.
-     *
-     * Un item es visible si el usuario tiene acceso por:
-     * - Rol: su minRoleRequired está en los roles del usuario
-     * - Client: el permiso está asignado al client del usuario
-     * - Usuario: el permiso está asignado directamente al usuario
-     */
-    public function getNavigationByUserAndClient(array $roles, ?int $clientId = null, ?int $userId = null): array
-    {
-        $allowedIds = $this->getAllowedItemIds($roles, $clientId, $userId);
-
-        if (empty($allowedIds)) {
-            return [];
-        }
-
-        return $this->createQueryBuilder('ni')
-            ->select('ni')
-            ->leftJoin('ni.children', 'c')
-            ->addSelect('c')
-            ->where('ni.parent IS NULL')
-            ->andWhere('ni.active = :is_active')
-            ->andWhere('ni.id IN (:allowedIds)')
-            ->andWhere('c.active = :is_active OR c.id IS NULL')
-            ->setParameter('is_active', true)
-            ->setParameter('allowedIds', $allowedIds)
-            ->orderBy('ni.orderValue', 'ASC')
-            ->addOrderBy('c.orderValue', 'ASC')
-            ->addOrderBy('ni.title', 'ASC')
-            ->addOrderBy('c.title', 'ASC')
-            ->getQuery()
-            ->getResult();
-    }
-
-    /**
      * Devuelve los IDs de parent y child a los que el usuario tiene acceso.
      */
     public function accessIds(array $roles, ?int $clientId = null, ?int $userId = null): array
@@ -99,12 +65,40 @@ class NavigationItemRepository extends ServiceEntityRepository
     }
 
     /**
-     * Obtiene todos los IDs de NavigationItem a los que el usuario tiene acceso,
-     * verificando permisos tanto en padres como en hijos.
+     * Todos los items, activos o no, con el id de su padre y en el orden en que se muestran.
      *
-     * @return int[]
+     * @return list<array{item: NavigationItem, parentId: ?int}>
      */
-    public function getAllowedItemIds(array $roles, ?int $clientId, ?int $userId): array
+    public function findAllForMenu(): array
+    {
+        $rows = $this->createQueryBuilder('ni')
+            ->select('ni', 'IDENTITY(ni.parent) AS parentId')
+            ->orderBy('ni.orderValue', 'ASC')
+            ->addOrderBy('ni.title', 'ASC')
+            ->addOrderBy('ni.id', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        return array_map(
+            static fn (array $row): array => [
+                'item' => $row[0],
+                'parentId' => $row['parentId'] === null ? null : (int) $row['parentId'],
+            ],
+            $rows,
+        );
+    }
+
+    /**
+     * IDs de los items con permiso propio, sin añadir padres ni hijos.
+     *
+     * Hay permiso si existe uno activo que coincida por:
+     * - Rol: su minRoleRequired está en los roles del usuario
+     * - Client: el permiso está asignado al client del usuario
+     * - Usuario: el permiso está asignado directamente al usuario
+     *
+     * @return list<int>
+     */
+    public function findPermittedItemIds(array $roles, ?int $clientId, ?int $userId): array
     {
         $qb = $this->getEntityManager()->createQueryBuilder()
             ->select('IDENTITY(up.item) as itemId')
@@ -139,11 +133,21 @@ class NavigationItemRepository extends ServiceEntityRepository
         $qb->andWhere(implode(' OR ', $conditions));
 
         $rows = $qb->getQuery()->getScalarResult();
-        $allowedItemIds = array_unique(array_column($rows, 'itemId'));
+
+        return array_values(array_unique(array_map('intval', array_column($rows, 'itemId'))));
+    }
+
+    /**
+     * IDs con permiso propio más el padre directo de cada uno (los usa accessIds).
+     *
+     * @return int[]
+     */
+    public function getAllowedItemIds(array $roles, ?int $clientId, ?int $userId): array
+    {
+        $intIds = $this->findPermittedItemIds($roles, $clientId, $userId);
 
         // Para cada hijo permitido, incluir también su padre
         // Para cada padre permitido, no incluir hijos automáticamente
-        $intIds = array_map('intval', $allowedItemIds);
         $items = $this->findBy(['id' => $intIds]);
 
         $allIds = $intIds;

@@ -6,6 +6,8 @@ use App\Entity\NavigationItem;
 use App\Entity\User;
 use App\Repository\EnvironmentRepository;
 use App\Repository\SysConfigRepository;
+use App\Service\Navigation\NavigationMenuBuilder;
+use App\Service\Navigation\NavigationMenuNode;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -29,6 +31,7 @@ class NavigationService extends CommonService
         SysConfigRepository $sysConfigRepo,
         SerializerInterface $serializer,
         protected readonly RoleHierarchyInterface $roleHierarchy,
+        private readonly NavigationMenuBuilder $menuBuilder,
     )
     {
         parent::__construct(
@@ -54,6 +57,11 @@ class NavigationService extends CommonService
         return $navRepo->getNavigationItems();
     }
 
+    /**
+     * Menú del usuario autenticado, filtrado a todos los niveles.
+     *
+     * @return list<NavigationMenuNode>
+     */
     public function getNavigationForUsers(): array
     {
         $user = $this->security->getUser();
@@ -70,21 +78,10 @@ class NavigationService extends CommonService
 
         /** @var \App\Repository\NavigationItemRepository $repository */
         $repository = $this->em->getRepository(NavigationItem::class);
-        $allowedIds = $repository->getAllowedItemIds($userRoles, $companyId, $userId);
-        $items = $repository->getNavigationByUserAndClient($userRoles, $companyId, $userId);
 
-        // Filtrar children que no están en los IDs permitidos
-        foreach ($items as $item) {
-            foreach ($item->getChildren() as $child) {
-                if (!in_array($child->getId(), $allowedIds, true)) {
-                    $item->removeChild($child);
-                }
-            }
-        }
-
-        // Remover padres que quedaron sin hijos (excepto items tipo basic/collapsable sin hijos por diseño)
-        return array_values(array_filter($items, function (NavigationItem $item) {
-            return $item->getChildren()->count() > 0 || $item->getLink() !== null;
-        }));
+        return $this->menuBuilder->build(
+            $repository->findAllForMenu(),
+            $repository->findPermittedItemIds($userRoles, $companyId, $userId),
+        );
     }
 }
