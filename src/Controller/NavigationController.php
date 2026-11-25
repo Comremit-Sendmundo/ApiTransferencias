@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Service\Navigation\NavigationMenuNode;
 use App\Service\NavigationService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -24,14 +25,7 @@ class NavigationController extends AbstractController
     #[DashboardEndpoint(summary: 'Obtener navegación del usuario', tag: 'Navigation')]
     public function navigation(): JsonResponse
     {
-        $serializerArray = $this->serializer->normalize(
-            $this->navigationService->getNavigationForUsers(),
-            'json',
-            [
-                'groups' => ['navigation'],
-                AbstractObjectNormalizer::SKIP_NULL_VALUES => true,
-            ]
-        );
+        $serializerArray = $this->normalizeNodes($this->navigationService->getNavigationForUsers());
 
         return $this->json([
             'compact' => $serializerArray,
@@ -39,5 +33,26 @@ class NavigationController extends AbstractController
             'futuristic' => $serializerArray,
             'horizontal' => $serializerArray,
         ]);
+    }
+
+    /**
+     * Los hijos salen del nodo ya filtrado, nunca de la colección de la entidad.
+     *
+     * @param list<NavigationMenuNode> $nodes
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeNodes(array $nodes): array
+    {
+        return array_map(function (NavigationMenuNode $node): array {
+            $item = $this->serializer->normalize($node->item, 'json', [
+                'groups' => ['navigation'],
+                AbstractObjectNormalizer::SKIP_NULL_VALUES => true,
+                AbstractObjectNormalizer::IGNORED_ATTRIBUTES => ['children'],
+            ]);
+            $item['children'] = $this->normalizeNodes($node->children);
+
+            return $item;
+        }, $nodes);
     }
 }
