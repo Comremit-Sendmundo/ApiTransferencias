@@ -290,6 +290,18 @@ class UserServiceTest extends TestCase
         $this->assertSame($user, $result);
     }
 
+    /** COMR-399: sin cliente no se consulta, porque un cliente null en la consulta significa «todos». */
+    public function testAllUsersWithoutAClientIsAnEmptyPageWithoutQuerying(): void
+    {
+        $this->security->method('getUser')->willReturn(new User());
+        $this->security->method('isGranted')->willReturn(false);
+        $this->em->expects($this->never())->method('getRepository');
+
+        $page = $this->service->allUsers(1, 15);
+
+        $this->assertSame([1, 15, 0, []], [$page->getPage(), $page->getLimit(), $page->getTotal(), $page->getResults()]);
+    }
+
     public function testFindByEmailReturnsNullWhenNotFound(): void
     {
         $userRepo = $this->createMock(EntityRepository::class);

@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\DTO\BalanceInDto;
 use App\DTO\Out\BalanceOperationOutDto;
 use App\DTO\Out\PaginatedTotalOutDto;
+use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
 use App\Service\BalanceService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -77,9 +78,18 @@ class AdminBalanceOperationController extends AbstractController
     #[DashboardEndpoint(summary: 'Actualizar operación de balance', tag: 'Balance Operations', requestDto: BalanceInDto::class, responseDto: BalanceOperationOutDto::class)]
     public function update(int $id, BalanceInDto $balance): JsonResponse
     {
+        try {
+            $updated = $this->balanceService->update($id, $balance);
+        } catch (MyCurrentException $e) {
+            return $this->json(
+                ['error' => ['message' => $e->getMessage(), 'code' => $e->getCodeWork()]],
+                $e->getCode() ?: Response::HTTP_BAD_REQUEST
+            );
+        }
+
         return $this->json(
             $this->serializer->normalize(
-                $this->balanceService->update($id, $balance),
+                $updated,
                 'json',
                 [
                     'groups' => [

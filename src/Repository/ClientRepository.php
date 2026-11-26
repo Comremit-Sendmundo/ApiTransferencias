@@ -35,9 +35,10 @@ class ClientRepository extends ServiceEntityRepository
     /**
      * @param array $filters
      * @param array $orderBy
+     * @param int|null $clientId solo ese cliente (null = todos)
      * @return PaginatorResponse
      */
-    public function getAllClients(array $filters = [], array $orderBy = []): PaginatorResponse
+    public function getAllClients(array $filters = [], array $orderBy = [], ?int $clientId = null): PaginatorResponse
     {
         $limit = $filters['limit'] ?? 10;
         $page = $filters['page'] ?? 0;
@@ -46,6 +47,9 @@ class ClientRepository extends ServiceEntityRepository
 
         $dql->setFirstResult($firstResult)
             ->setMaxResults($limit);
+        if ($clientId !== null) {
+            $dql->andWhere('c.id = :clientId')->setParameter('clientId', $clientId);
+        }
         if (count($orderBy) === 0) {
             $dql->orderBy('c.companyName', 'ASC');
         } else {

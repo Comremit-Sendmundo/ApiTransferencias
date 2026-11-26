@@ -28,9 +28,9 @@ use App\Provider\ProviderContextFactory;
 use App\Provider\ProviderRegistry;
 use App\Repository\EnvironmentRepository;
 use App\Repository\SysConfigRepository;
+use App\Security\ClientScope;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\EntityNotFoundException;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
@@ -139,17 +139,15 @@ class BalanceService extends CommonService
         if (!$user instanceof User) {
             return [];
         }
-        if (is_null($clientId)) {
-            $clientId = $user->getCompany()?->getId();
-        }
-        if (!$this->security->isGranted('ROLE_ADMIN') && $clientId !== $user->getCompany()?->getId()) {
-            throw new AccessDeniedException();
+        $scope = $this->clientScope($user, $clientId ?? $user->getCompany()?->getId());
+        if ($scope->isNone()) {
+            return [];
         }
 
         /** @var \App\Repository\BalanceOperationRepository $balanceRepo */
         $balanceRepo = $this->em->getRepository(BalanceOperation::class);
         $balancesAvailabilities = $balanceRepo->getBalancesInEnvironments(
-            $clientId
+            $scope->clientId()
         );
         $balances = [];
         foreach ($balancesAvailabilities as $balanceItem) {
@@ -217,16 +215,14 @@ class BalanceService extends CommonService
         if (!$user instanceof User) {
             throw new AccessDeniedException();
         }
-        if (is_null($companyId)) {
-            $companyId = $user->getCompany()?->getId();
-        }
-        if (!$this->security->isGranted('ROLE_ADMIN') && $companyId !== $user->getCompany()?->getId()) {
-            throw new AccessDeniedException();
+        $scope = $this->clientScope($user, $companyId ?? $user->getCompany()?->getId());
+        if ($scope->isNone()) {
+            return [];
         }
 
         /** @var \App\Repository\BalanceOperationRepository $balanceRepo */
         $balanceRepo = $this->em->getRepository(BalanceOperation::class);
-        return $balanceRepo->getRecentTransactions($limit, $companyId);
+        return $balanceRepo->getRecentTransactions($limit, $scope->clientId());
     }
 
     /**
@@ -246,7 +242,10 @@ class BalanceService extends CommonService
         if (!$user instanceof User) {
             throw new AccessDeniedException();
         }
-        $companyId = $user->getCompany()?->getId();
+        $scope = $this->clientScope($user);
+        if ($scope->isNone()) {
+            return new PaginationResult(0, $page, $limit, []);
+        }
 
         /** @var \App\Repository\BalanceOperationRepository $balanceRepo */
         $balanceRepo = $this->em->getRepository(BalanceOperation::class);
@@ -255,8 +254,13 @@ class BalanceService extends CommonService
             $orderBy,
             $page,
             $limit,
-            $this->security->isGranted('ROLE_ADMIN') ? null : $companyId
+            $scope->clientId()
         );
+    }
+
+    private function clientScope(?User $user, ?int $requested = null): ClientScope
+    {
+        return ClientScope::of($user, $this->security->isGranted('ROLE_ADMIN'), $requested);
     }
 
     /**
@@ -422,8 +426,11 @@ class BalanceService extends CommonService
             throw new AccessDeniedException();
         }
         $balance = $this->em->getRepository(BalanceOperation::class)->find($id);
-        if (is_null($balance)) {
-            throw new EntityNotFoundException();
+        $user = $this->security->getUser();
+        $scope = $this->clientScope($user instanceof User ? $user : null);
+        // La de otro cliente responde igual que la que no existe, antes de tocarla o devolverla.
+        if (is_null($balance) || !$scope->allows($balance->getTenant()?->getClient()?->getId())) {
+            throw new MyCurrentException('BALANCE_OPERATION_NOT_FOUND', 'Balance operation not found', 404);
         }
         if ($balanceInDto->getIsRequired()) {
             if ($balance->getState() !== BalanceStateEnum::COMPLETED->value) {

@@ -18,6 +18,7 @@ use App\Enums\CommunicationStateEnum;
 use App\Message\CheckSaleMessage;
 use App\Message\SalePackageMessage;
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Security\ClientScope;
 use App\Service\CommunicationSaleService;
 use App\Service\Etecsa\EtecsaRetryService;
 use App\Service\SaleSubtype;
@@ -62,6 +63,19 @@ class DashboardSalesController extends AbstractController
         $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
         $orderBy = $request->query->get('orderBy', 'createdAt DESC');
 
+        $clientId = $request->query->get('clientId');
+        $accountId = $request->query->get('accountId');
+        $scope = $this->clientScope(!empty($clientId) ? (int) $clientId : null);
+        if ($scope->isNone()) {
+            return $this->json([
+                'limit' => $limit,
+                'currentPage' => $page,
+                'hasNext' => false,
+                'hasPrevious' => $page > 0,
+                'results' => [],
+            ]);
+        }
+
         $qb = $this->em->getRepository(CommunicationSaleInfo::class)
             ->createQueryBuilder('s')
             ->leftJoin('s.tenant', 'a')
@@ -82,17 +96,14 @@ class DashboardSalesController extends AbstractController
         }
 
         // Filtro por client id / account id — admins pueden filtrar por cualquier cliente o cuenta; el resto solo ve el suyo
-        $clientId = $request->query->get('clientId');
-        $accountId = $request->query->get('accountId');
-        $user = $this->getUser();
         if ($this->isGranted('ROLE_ADMIN')) {
             if (!empty($accountId)) {
                 $qb->andWhere('a.id = :accountId')->setParameter('accountId', $accountId);
             } elseif (!empty($clientId)) {
                 $qb->andWhere('c.id = :clientId')->setParameter('clientId', $clientId);
             }
-        } elseif ($user instanceof User && $user->getCompany() !== null) {
-            $qb->andWhere('c.id = :clientId')->setParameter('clientId', $user->getCompany()->getId());
+        } else {
+            $qb->andWhere('c.id = :clientId')->setParameter('clientId', $scope->clientId());
         }
 
         // Filtro por transaction id del sistema
@@ -164,16 +175,9 @@ class DashboardSalesController extends AbstractController
     #[DashboardEndpoint(summary: 'Detalle de venta', tag: 'Sales', responseDto: SaleInfoDetailOutDto::class)]
     public function detail(int $id): JsonResponse
     {
-        $sale = $this->em->getRepository(CommunicationSaleInfo::class)->find($id);
+        $sale = $this->findVisibleSale($id);
         if ($sale === null) {
             return $this->json(['error' => ['message' => 'Sale not found']], Response::HTTP_NOT_FOUND);
-        }
-
-        $user = $this->getUser();
-        if (!$this->isGranted('ROLE_ADMIN') && $user instanceof User && $user->getCompany() !== null) {
-            if ($sale->getTenant()?->getClient()?->getId() !== $user->getCompany()->getId()) {
-                return $this->json(['error' => ['message' => 'Sale not found']], Response::HTTP_NOT_FOUND);
-            }
         }
 
         $data = $this->serializer->normalize($sale, 'json', [
@@ -189,7 +193,7 @@ class DashboardSalesController extends AbstractController
     #[DashboardEndpoint(summary: 'Verificar estado de venta', tag: 'Sales', responseDto: SaleCheckStatusOutDto::class)]
     public function checkStatus(int $id): JsonResponse
     {
-        $sale = $this->em->getRepository(CommunicationSaleInfo::class)->find($id);
+        $sale = $this->findVisibleSale($id);
         if ($sale === null) {
             return $this->json(['error' => ['message' => 'Sale not found']], Response::HTTP_NOT_FOUND);
         }
@@ -233,7 +237,7 @@ class DashboardSalesController extends AbstractController
 #[IsGranted('ROLE_API_ADMIN')]
     public function retry(int $id, RetrySaleDto $dto): JsonResponse
     {
-        $sale = $this->em->getRepository(CommunicationSaleInfo::class)->find($id);
+        $sale = $this->findVisibleSale($id);
         if ($sale === null) {
             return $this->json(['error' => ['message' => 'Sale not found']], Response::HTTP_NOT_FOUND);
         }
@@ -320,5 +324,23 @@ class DashboardSalesController extends AbstractController
             'state' => $sale->getState()->value,
             'retryDispatched' => true,
         ]);
+    }
+
+    private function clientScope(?int $requestedClientId = null): ClientScope
+    {
+        $user = $this->getUser();
+
+        return ClientScope::of($user instanceof User ? $user : null, $this->isGranted('ROLE_ADMIN'), $requestedClientId);
+    }
+
+    /** La venta de otro cliente se trata igual que la que no existe. */
+    private function findVisibleSale(int $id): ?CommunicationSaleInfo
+    {
+        $sale = $this->em->getRepository(CommunicationSaleInfo::class)->find($id);
+        if ($sale === null || !$this->clientScope()->allows($sale->getTenant()?->getClient()?->getId())) {
+            return null;
+        }
+
+        return $sale;
     }
 }

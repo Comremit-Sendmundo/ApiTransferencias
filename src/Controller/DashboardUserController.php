@@ -13,6 +13,7 @@ use App\Entity\Client;
 use App\Entity\User;
 use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Security\ClientScope;
 use App\Service\UserPresenter;
 use App\Service\UserManagementService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -102,9 +103,12 @@ class DashboardUserController extends AbstractController
             return $this->json(['error' => ['message' => 'User not found']], Response::HTTP_NOT_FOUND);
         }
 
-        $access = $this->checkClientAccess($currentUser, $user);
-        if ($access !== null) {
-            return $access;
+        // Cada usuario puede leer sus propios datos; los de otro siguen las reglas de acceso por cliente.
+        if ($currentUser->getId() !== $user->getId()) {
+            $access = $this->checkClientAccess($currentUser, $user);
+            if ($access !== null) {
+                return $access;
+            }
         }
 
         return $this->json($this->userPresenter->present($user));
@@ -125,7 +129,7 @@ class DashboardUserController extends AbstractController
         }
 
         $companyId = $dto->getCompanyId() ?? $currentUser->getCompany()?->getId();
-        if (!$this->isGranted('ROLE_ADMIN') && $companyId != $currentUser->getCompany()?->getId()) {
+        if (!$this->clientScope($currentUser)->allows($companyId)) {
             return $this->json(['error' => ['message' => 'Cannot create users for another client.']], Response::HTTP_FORBIDDEN);
         }
 
@@ -273,17 +277,24 @@ class DashboardUserController extends AbstractController
 
     private function checkClientAccess(User $currentUser, User $targetUser): ?JsonResponse
     {
-        if ($this->isGranted('ROLE_ADMIN')) {
+        $scope = $this->clientScope($currentUser);
+        if ($scope->isAll()) {
             return null;
         }
 
         if ($this->isGranted('ROLE_COM_API_ADMIN') || $this->isGranted('ROLE_API_ADMIN')) {
-            if ($currentUser->getCompany()?->getId() === $targetUser->getCompany()?->getId()) {
+            // Sin cliente no se alcanza a nadie: que ambos carezcan de él no es compartirlo.
+            if ($scope->allows($targetUser->getCompany()?->getId())) {
                 return null;
             }
         }
 
         return $this->json(['error' => ['message' => 'Access denied']], Response::HTTP_FORBIDDEN);
+    }
+
+    private function clientScope(User $currentUser): ClientScope
+    {
+        return ClientScope::of($currentUser, $this->isGranted('ROLE_ADMIN'));
     }
 
     private function getMaxRoleWeight(User $user): int

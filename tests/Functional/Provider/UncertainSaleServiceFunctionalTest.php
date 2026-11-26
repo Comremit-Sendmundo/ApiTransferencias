@@ -4,15 +4,22 @@ namespace App\Tests\Functional\Provider;
 
 use App\Entity\Account;
 use App\Entity\BalanceOperation;
+use App\Entity\Client;
 use App\Entity\CommunicationPackage;
 use App\Entity\CommunicationSaleHistory;
 use App\Entity\CommunicationSaleInfo;
 use App\Entity\CommunicationSaleRecharge;
+use App\Entity\User;
 use App\Enums\CommunicationStateEnum;
 use App\Exception\MyCurrentException;
 use App\Message\CheckSaleMessage;
 use App\Repository\CommunicationSaleInfoRepository;
+use App\Security\ClientScope;
+use App\Service\BalanceService;
+use App\Service\HistoricalSaleService;
 use App\Service\UncertainSaleService;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 /**
@@ -92,6 +99,71 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         return $transport;
     }
 
+    private function everyone(): ClientScope
+    {
+        return ClientScope::of(null, true);
+    }
+
+    private function onlyClient(?Client $client): ClientScope
+    {
+        return ClientScope::of((new User())->setCompany($client), false);
+    }
+
+    // ---- Alcance por cliente (COMR-399) ----
+
+    public function testListOfAClientOnlyReturnsItsUncertainSales(): void
+    {
+        $this->uncertain();
+        $this->account = $this->createAccount($this->createClient(), $this->account->getEnvironment());
+        $foreign = $this->uncertain();
+
+        $page = $this->service()->list($this->onlyClient($foreign->getTenant()->getClient()), 0, 50);
+
+        $this->assertSame([$foreign->getId()], array_map(static fn (CommunicationSaleInfo $s): ?int => $s->getId(), $page['items']));
+        $this->assertFalse($page['hasNext']);
+    }
+
+    public function testListWithoutAClientIsEmptyAndDoesNotQuery(): void
+    {
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects($this->never())->method('getRepository');
+        $service = new UncertainSaleService(
+            $em,
+            self::getContainer()->get(BalanceService::class),
+            self::getContainer()->get(HistoricalSaleService::class),
+            self::getContainer()->get(MessageBusInterface::class),
+        );
+
+        $this->assertSame(['items' => [], 'hasNext' => false], $service->list($this->onlyClient(null), 0, 50));
+    }
+
+    public function testTheSaleOfAnotherClientIsNotFoundWhateverItsState(): void
+    {
+        $uncertain = $this->uncertain();
+        $notUncertain = $this->sale(CommunicationStateEnum::PENDING, 'Pending');
+        $other = $this->createClient();
+        $this->transport()->reset();
+
+        foreach ([$this->onlyClient($other), $this->onlyClient(null)] as $scope) {
+            foreach ([$uncertain, $notUncertain] as $sale) {
+                foreach ([
+                    fn () => $this->service()->recheck($scope, $sale->getId()),
+                    fn () => $this->service()->resolve($scope, $sale->getId(), 'completed', 'Intento sobre una venta ajena', 'otro@example.com'),
+                ] as $action) {
+                    try {
+                        $action();
+                        $this->fail('Debía lanzar SALE_NOT_FOUND');
+                    } catch (MyCurrentException $e) {
+                        $this->assertSame(['SALE_NOT_FOUND', 404], [$e->getCodeWork(), $e->getCode()]);
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $this->transport()->getSent());
+        $this->assertSame(CommunicationSaleInfo::STATE_PROCESS_UNCERTAIN, $this->reloaded($uncertain)->getStateProcess());
+    }
+
     public function testListOnlyReturnsUncertainSalesOldestFirst(): void
     {
         $first = $this->uncertain();
@@ -99,7 +171,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         $this->sale(CommunicationStateEnum::COMPLETED, 'Completed');
         $second = $this->uncertain();
 
-        $page = $this->service()->list(0, 50);
+        $page = $this->service()->list($this->everyone(), 0, 50);
 
         $mine = array_values(array_filter($page['items'], fn (CommunicationSaleInfo $s): bool => $s->getTenant()?->getId() === $this->account->getId()));
         $this->assertSame([$first->getId(), $second->getId()], array_map(static fn (CommunicationSaleInfo $s): ?int => $s->getId(), $mine));
@@ -110,7 +182,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         $sale = $this->uncertain();
         $this->transport()->reset();
 
-        $this->service()->recheck($sale->getId());
+        $this->service()->recheck($this->everyone(), $sale->getId());
 
         $sent = $this->transport()->getSent();
         $this->assertCount(1, $sent);
@@ -123,7 +195,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         $sale = $this->sale(CommunicationStateEnum::PENDING, 'Pending');
 
         try {
-            $this->service()->recheck($sale->getId());
+            $this->service()->recheck($this->everyone(), $sale->getId());
             $this->fail('Debía lanzar SALE_NOT_UNCERTAIN');
         } catch (MyCurrentException $e) {
             $this->assertSame(409, $e->getCode());
@@ -134,7 +206,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
     {
         $sale = $this->uncertain(7.0);
 
-        $this->service()->resolve($sale->getId(), 'completed', 'El proveedor confirmó por correo la recarga', 'admin@example.com');
+        $this->service()->resolve($this->everyone(), $sale->getId(), 'completed', 'El proveedor confirmó por correo la recarga', 'admin@example.com');
 
         $reloaded = $this->reloaded($sale);
         $this->assertSame(CommunicationStateEnum::COMPLETED, $reloaded->getState());
@@ -149,7 +221,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         $sale = $this->uncertain(9.0);
         $this->assertSame(9.0, $this->repository()->getReservedAmount($this->account->getId()));
 
-        $this->service()->resolve($sale->getId(), 'rejected', 'El proveedor confirmó que no la procesó', 'admin@example.com');
+        $this->service()->resolve($this->everyone(), $sale->getId(), 'rejected', 'El proveedor confirmó que no la procesó', 'admin@example.com');
 
         $reloaded = $this->reloaded($sale);
         $this->assertSame(CommunicationStateEnum::REJECTED, $reloaded->getState());
@@ -162,7 +234,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
     {
         $sale = $this->uncertain();
 
-        $this->service()->resolve($sale->getId(), 'rejected', 'No consta en el proveedor tras revisarlo', 'admin@example.com');
+        $this->service()->resolve($this->everyone(), $sale->getId(), 'rejected', 'No consta en el proveedor tras revisarlo', 'admin@example.com');
 
         $this->em->clear();
         $history = $this->em->getRepository(CommunicationSaleHistory::class)->findBy(['sale' => $sale->getId()]);
@@ -175,10 +247,10 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
     public function testASaleResolvedOnceCannotBeResolvedAgain(): void
     {
         $sale = $this->uncertain();
-        $this->service()->resolve($sale->getId(), 'completed', 'Confirmada por el proveedor', 'admin@example.com');
+        $this->service()->resolve($this->everyone(), $sale->getId(), 'completed', 'Confirmada por el proveedor', 'admin@example.com');
 
         try {
-            $this->service()->resolve($sale->getId(), 'rejected', 'Otro administrador la rechaza', 'otro@example.com');
+            $this->service()->resolve($this->everyone(), $sale->getId(), 'rejected', 'Otro administrador la rechaza', 'otro@example.com');
             $this->fail('Debía lanzar SALE_NOT_UNCERTAIN');
         } catch (MyCurrentException $e) {
             $this->assertSame(409, $e->getCode());
@@ -189,7 +261,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
     public function testUnknownSaleIsNotFound(): void
     {
         try {
-            $this->service()->resolve(999999999, 'completed', 'No existe esta venta', 'admin@example.com');
+            $this->service()->resolve($this->everyone(), 999999999, 'completed', 'No existe esta venta', 'admin@example.com');
             $this->fail('Debía lanzar SALE_NOT_FOUND');
         } catch (MyCurrentException $e) {
             $this->assertSame(404, $e->getCode());
@@ -201,7 +273,7 @@ class UncertainSaleServiceFunctionalTest extends ProviderFunctionalTestCase
         $sale = $this->uncertain();
 
         try {
-            $this->service()->resolve($sale->getId(), 'maybe', 'Motivo suficiente', 'admin@example.com');
+            $this->service()->resolve($this->everyone(), $sale->getId(), 'maybe', 'Motivo suficiente', 'admin@example.com');
             $this->fail('Debía lanzar INVALID_RESOLUTION');
         } catch (MyCurrentException $e) {
             $this->assertSame(400, $e->getCode());

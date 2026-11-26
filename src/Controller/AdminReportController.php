@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
 use App\Service\ReportService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -44,9 +45,15 @@ class AdminReportController extends AbstractController
     #[DashboardEndpoint(summary: 'Obtener reporte', tag: 'Admin Reports')]
     public function getReport(int $id): JsonResponse
     {
+        try {
+            $report = $this->reportService->getReport($id);
+        } catch (MyCurrentException $e) {
+            return $this->json(['error' => ['message' => $e->getMessage(), 'code' => $e->getCodeWork()]], $e->getCode());
+        }
+
         return $this->json(
             $this->serializer->normalize(
-                $this->reportService->getReport($id),
+                $report,
                 'json',
                 [
                     'groups' => [

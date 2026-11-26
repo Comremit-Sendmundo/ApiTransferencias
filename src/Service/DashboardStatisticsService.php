@@ -8,6 +8,7 @@ use App\Entity\User;
 use App\Repository\CommunicationSaleInfoRepository;
 use App\Repository\EnvironmentRepository;
 use App\Repository\SysConfigRepository;
+use App\Security\ClientScope;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -37,29 +38,26 @@ class DashboardStatisticsService extends CommonService
         );
     }
 
-    private function resolveClientId(?int $requestedClientId): ?int
+    private function resolveScope(?int $requestedClientId): ClientScope
     {
         $user = $this->security->getUser();
         if (!$user instanceof User) {
             throw new AccessDeniedException();
         }
 
-        if ($this->security->isGranted('ROLE_ADMIN')) {
-            return $requestedClientId;
-        }
-
-        $ownClientId = $user->getCompany()?->getId();
-        if ($requestedClientId !== null && $requestedClientId !== $ownClientId) {
-            throw new AccessDeniedException();
-        }
-
-        return $ownClientId;
+        return ClientScope::of($user, $this->security->isGranted('ROLE_ADMIN'), $requestedClientId);
     }
 
-    private function normalizeFilters(array $filters): array
+    /** @return array<string, mixed>|null null si el usuario no puede ver ningún cliente: no hay que consultar nada */
+    private function normalizeFilters(array $filters): ?array
     {
+        $scope = $this->resolveScope($filters['clientId'] ?? null);
+        if ($scope->isNone()) {
+            return null;
+        }
+
         return [
-            'clientId'        => $this->resolveClientId($filters['clientId'] ?? null),
+            'clientId'        => $scope->clientId(),
             'dateFrom'        => !empty($filters['dateFrom'])
                 ? new \DateTimeImmutable($filters['dateFrom'])
                 : new \DateTimeImmutable('-1 year'),
@@ -74,6 +72,20 @@ class DashboardStatisticsService extends CommonService
     public function getSummary(array $filters): array
     {
         $f = $this->normalizeFilters($filters);
+        if ($f === null) {
+            return [
+                'totalOperations' => 0,
+                'completed'       => 0,
+                'failed'          => 0,
+                'pending'         => 0,
+                'rejected'        => 0,
+                'created'         => 0,
+                'reserved'        => 0,
+                'successRate'     => 0,
+                'totalAmount'     => 0.0,
+                'avgAmount'       => 0.0,
+            ];
+        }
         return $this->saleRepo->getStatsSummary(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type']
         );
@@ -82,6 +94,9 @@ class DashboardStatisticsService extends CommonService
     public function getOperationsByClient(array $filters): array
     {
         $f = $this->normalizeFilters($filters);
+        if ($f === null) {
+            return [];
+        }
         return $this->saleRepo->getStatsOperationsByClient(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type']
         );
@@ -94,6 +109,9 @@ class DashboardStatisticsService extends CommonService
         if (!in_array($groupBy, $allowed, true)) {
             $groupBy = 'day';
         }
+        if ($f === null) {
+            return ['groupBy' => $groupBy, 'series' => []];
+        }
         return $this->saleRepo->getStatsOperationsOverTime(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type'], $groupBy
         );
@@ -102,6 +120,9 @@ class DashboardStatisticsService extends CommonService
     public function getBusiestDays(array $filters): array
     {
         $f = $this->normalizeFilters($filters);
+        if ($f === null) {
+            return [];
+        }
         return $this->saleRepo->getStatsBusiestDays(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type']
         );
@@ -110,6 +131,9 @@ class DashboardStatisticsService extends CommonService
     public function getPeakHours(array $filters): array
     {
         $f = $this->normalizeFilters($filters);
+        if ($f === null) {
+            return [];
+        }
         return $this->saleRepo->getStatsPeakHours(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type']
         );
@@ -118,6 +142,9 @@ class DashboardStatisticsService extends CommonService
     public function getTopPackages(array $filters, int $limit): array
     {
         $f = $this->normalizeFilters($filters);
+        if ($f === null) {
+            return [];
+        }
         return $this->saleRepo->getStatsTopPackages(
             $f['clientId'], $f['dateFrom'], $f['dateTo'], $f['environmentType'], $f['type'], $limit
         );

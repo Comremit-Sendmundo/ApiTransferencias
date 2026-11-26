@@ -251,13 +251,20 @@ class CommunicationSaleInfoRepository extends ServiceEntityRepository
     }
 
     /**
-     * Ventas inciertas (COMR-258), las más antiguas primero.
+     * Ventas inciertas (COMR-258), las más antiguas primero. Con $clientId, solo las de ese cliente (null = todas).
      *
      * @return list<CommunicationSaleInfo>
      */
-    public function findUncertain(int $offset, int $limit): array
+    public function findUncertain(int $offset, int $limit, ?int $clientId = null): array
     {
-        return array_values($this->onlyDispatchableSubtypes($this->createQueryBuilder('csi'), 'csi')
+        $qb = $this->createQueryBuilder('csi');
+        if ($clientId !== null) {
+            $qb->innerJoin('csi.tenant', 't')
+                ->andWhere('t.client = :clientId')
+                ->setParameter('clientId', $clientId);
+        }
+
+        return array_values($this->onlyDispatchableSubtypes($qb, 'csi')
             ->andWhere('csi.state = :status')
             ->andWhere('csi.stateProcess = :uncertain')
             ->setParameter('status', CommunicationStateEnum::PENDING)

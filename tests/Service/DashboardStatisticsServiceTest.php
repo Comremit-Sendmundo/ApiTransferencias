@@ -143,6 +143,57 @@ class DashboardStatisticsServiceTest extends TestCase
         $this->service->getSummary([]);
     }
 
+    // ── Usuario sin cliente (COMR-399) ──────────────────────────
+
+    private function authenticateUserWithoutClient(): void
+    {
+        $this->security->method('getUser')->willReturn(new User());
+        $this->security->method('isGranted')->willReturn(false);
+    }
+
+    public function testAUserWithoutAClientGetsAnEmptySummaryWithoutQuerying(): void
+    {
+        $this->authenticateUserWithoutClient();
+        $this->saleRepo->expects($this->never())->method('getStatsSummary');
+
+        $this->assertSame([
+            'totalOperations' => 0,
+            'completed'       => 0,
+            'failed'          => 0,
+            'pending'         => 0,
+            'rejected'        => 0,
+            'created'         => 0,
+            'reserved'        => 0,
+            'successRate'     => 0,
+            'totalAmount'     => 0.0,
+            'avgAmount'       => 0.0,
+        ], $this->service->getSummary([]));
+    }
+
+    public function testAUserWithoutAClientGetsNothingElseAndNothingIsQueried(): void
+    {
+        $this->authenticateUserWithoutClient();
+        foreach (['getStatsOperationsByClient', 'getStatsOperationsOverTime', 'getStatsBusiestDays', 'getStatsPeakHours', 'getStatsTopPackages'] as $method) {
+            $this->saleRepo->expects($this->never())->method($method);
+        }
+
+        $this->assertSame([], $this->service->getOperationsByClient([]));
+        $this->assertSame(['groupBy' => 'month', 'series' => []], $this->service->getOperationsOverTime([], 'month'));
+        $this->assertSame(['groupBy' => 'day', 'series' => []], $this->service->getOperationsOverTime([], 'invalid'));
+        $this->assertSame([], $this->service->getBusiestDays([]));
+        $this->assertSame([], $this->service->getPeakHours([]));
+        $this->assertSame([], $this->service->getTopPackages([], 10));
+    }
+
+    public function testAUserWithoutAClientCannotAskForOne(): void
+    {
+        $this->authenticateUserWithoutClient();
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->service->getSummary(['clientId' => 4]);
+    }
+
     // ── Date defaults ───────────────────────────────────────────
 
     public function testDefaultDateRangeIsLastYear(): void

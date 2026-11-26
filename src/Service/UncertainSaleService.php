@@ -9,6 +9,7 @@ use App\Exception\MyCurrentException;
 use App\Message\CheckSaleMessage;
 use App\Provider\TransactionStatus;
 use App\Repository\CommunicationSaleInfoRepository;
+use App\Security\ClientScope;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
 
@@ -34,11 +35,14 @@ class UncertainSaleService
      *
      * @return array{items: list<CommunicationSaleInfo>, hasNext: bool}
      */
-    public function list(int $page, int $limit): array
+    public function list(ClientScope $scope, int $page, int $limit): array
     {
+        if ($scope->isNone()) {
+            return ['items' => [], 'hasNext' => false];
+        }
         $repository = $this->em->getRepository(CommunicationSaleInfo::class);
         \assert($repository instanceof CommunicationSaleInfoRepository);
-        $items = $repository->findUncertain($page * $limit, $limit + 1);
+        $items = $repository->findUncertain($page * $limit, $limit + 1, $scope->clientId());
 
         return [
             'items' => \array_slice($items, 0, $limit),
@@ -51,21 +55,21 @@ class UncertainSaleService
      *
      * @throws MyCurrentException
      */
-    public function recheck(int $saleId): void
+    public function recheck(ClientScope $scope, int $saleId): void
     {
-        $sale = $this->uncertainSale($saleId);
+        $sale = $this->uncertainSale($scope, $saleId);
         $this->messageBus->dispatch(new CheckSaleMessage($sale->getId()));
     }
 
     /**
      * @throws MyCurrentException
      */
-    public function resolve(int $saleId, string $resolution, string $reason, ?string $resolvedBy): CommunicationSaleInfo
+    public function resolve(ClientScope $scope, int $saleId, string $resolution, string $reason, ?string $resolvedBy): CommunicationSaleInfo
     {
         if (!\in_array($resolution, [self::RESOLUTION_COMPLETED, self::RESOLUTION_REJECTED], true)) {
             throw new MyCurrentException('INVALID_RESOLUTION', 'Resolution must be "completed" or "rejected"', 400);
         }
-        $sale = $this->uncertainSale($saleId);
+        $sale = $this->uncertainSale($scope, $saleId);
         $tenant = $sale->getTenant();
         if ($resolution === self::RESOLUTION_COMPLETED && $tenant === null) {
             throw new MyCurrentException('SALE_WITHOUT_ACCOUNT', 'The sale has no account to debit', 409);
@@ -109,10 +113,11 @@ class UncertainSaleService
     /**
      * @throws MyCurrentException
      */
-    private function uncertainSale(int $saleId): CommunicationSaleInfo
+    private function uncertainSale(ClientScope $scope, int $saleId): CommunicationSaleInfo
     {
         $sale = $this->em->getRepository(CommunicationSaleInfo::class)->find($saleId);
-        if ($sale === null) {
+        // La de otro cliente responde igual que la que no existe, sin revelar su estado.
+        if ($sale === null || !$scope->allows($sale->getTenant()?->getClient()?->getId())) {
             throw new MyCurrentException('SALE_NOT_FOUND', 'Sale not found', 404);
         }
         if (!$sale->isUncertain() || $sale->getState() !== CommunicationStateEnum::PENDING) {
