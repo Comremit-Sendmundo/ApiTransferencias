@@ -21,6 +21,7 @@ use App\Message\AccountActivationMessage;
 use App\Message\ForgotPasswordMessage;
 use App\Repository\EnvironmentRepository;
 use App\Repository\SysConfigRepository;
+use App\Security\ClientScope;
 use App\Util\DashboardUtil;
 use Doctrine\ORM\EntityManagerInterface;
 use MiladRahimi\Jwt\Cryptography\Algorithms\Hmac\HS512;
@@ -454,12 +455,16 @@ class UserService extends CommonService
         if (!$user instanceof User) {
             throw new AccessDeniedException();
         }
-        $companyId = $user->getCompany()?->getId();
-        $active = !is_null($companyId) ? true : null;
+        $scope = ClientScope::of($user, $this->security->isGranted('ROLE_ADMIN'));
+        if ($scope->isNone()) {
+            return new PaginatorResponse($page, $limit, 0, []);
+        }
+        // Un administrador ve también los usuarios inactivos; el resto, solo los activos de su cliente.
+        $active = $scope->isAll() ? null : true;
 
         /** @var \App\Repository\UserRepository $userRepo */
         $userRepo = $this->em->getRepository(User::class);
-        return $userRepo->searchAllUsersInCompany($companyId, $active, $page, $limit);
+        return $userRepo->searchAllUsersInCompany($scope->clientId(), $active, $page, $limit);
     }
 
     public function getPermissionUsed(): AccountPermission
@@ -493,7 +498,11 @@ class UserService extends CommonService
             return new AccountPermission($accounts, $environments, $clients, $preferEnvironment, null);
         }
         if ($this->security->isGranted('ROLE_SYSTEM_USER')) {
-            $client = $this->em->getRepository(Client::class)->find($user->getCompany()?->getId());
+            $clientId = $user->getCompany()?->getId();
+            if ($clientId === null) {
+                return new AccountPermission([], [], [], null, null);
+            }
+            $client = $this->em->getRepository(Client::class)->find($clientId);
             $accounts = $this->em->getRepository(Account::class)->findBy([
                 'client' => $client,
                 'isActive' => true,

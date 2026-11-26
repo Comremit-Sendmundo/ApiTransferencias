@@ -17,7 +17,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
 
 #[Route("/admin/dashboard/financial")]
-#[IsGranted("ROLE_SYSTEM_SHOW")]
+#[IsGranted("ROLE_SYSTEM_USER")]
 class AdminDashboardFinancialController extends AbstractController
 {
     public function __construct(

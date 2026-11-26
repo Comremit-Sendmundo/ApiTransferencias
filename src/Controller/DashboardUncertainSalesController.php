@@ -11,6 +11,7 @@ use App\Entity\CommunicationSaleRecharge;
 use App\Entity\User;
 use App\Exception\MyCurrentException;
 use App\OpenApi\Attribute\DashboardEndpoint;
+use App\Security\ClientScope;
 use App\Service\UncertainSaleService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -39,7 +40,7 @@ class DashboardUncertainSalesController extends AbstractController
         $page = max(0, (int) $request->query->get('page', 0));
         $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
 
-        $result = $this->uncertainSaleService->list($page, $limit);
+        $result = $this->uncertainSaleService->list($this->clientScope(), $page, $limit);
 
         return $this->json([
             'limit' => $limit,
@@ -55,7 +56,7 @@ class DashboardUncertainSalesController extends AbstractController
     public function recheck(int $id): JsonResponse
     {
         try {
-            $this->uncertainSaleService->recheck($id);
+            $this->uncertainSaleService->recheck($this->clientScope(), $id);
         } catch (MyCurrentException $e) {
             return $this->errorResponse($e);
         }
@@ -71,6 +72,7 @@ class DashboardUncertainSalesController extends AbstractController
 
         try {
             $sale = $this->uncertainSaleService->resolve(
+                $this->clientScope(),
                 $id,
                 (string) $dto->getResolution(),
                 (string) $dto->getReason(),
@@ -85,6 +87,13 @@ class DashboardUncertainSalesController extends AbstractController
             'state' => $sale->getState()?->value,
             'stateProcess' => $sale->getStateProcess(),
         ]);
+    }
+
+    private function clientScope(): ClientScope
+    {
+        $user = $this->getUser();
+
+        return ClientScope::of($user instanceof User ? $user : null, $this->isGranted('ROLE_ADMIN'));
     }
 
     /**

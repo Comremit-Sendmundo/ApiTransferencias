@@ -7,6 +7,7 @@ use App\DTO\UpdateClientDto;
 use App\Entity\Account;
 use App\Entity\Client;
 use App\Entity\Environment;
+use App\Entity\User;
 use App\EntityPaginator\PaginatorResponse;
 use App\Exception\MyCurrentException;
 use App\Market\Organizacion\Application\LinkBuyerToOrgUnit;
@@ -15,6 +16,7 @@ use App\Market\Organizacion\Domain\UnknownBuyerCountry;
 use App\Message\ClientCreatedMessage;
 use App\Repository\EnvironmentRepository;
 use App\Repository\SysConfigRepository;
+use App\Security\ClientScope;
 use App\Service\CommonService;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -50,6 +52,12 @@ class ClientService extends CommonService
      */
     public function getAllClients(array $params): PaginatorResponse
     {
+        $user = $this->security->getUser();
+        $scope = ClientScope::of($user instanceof User ? $user : null, $this->security->isGranted('ROLE_ADMIN'));
+        if ($scope->isNone()) {
+            return new PaginatorResponse($params['page'] ?? 0, $params['limit'] ?? 10, 0, []);
+        }
+
         $orderBy = [];
         if (isset($params['orderBy'])) {
             $orderBy = [
@@ -59,7 +67,7 @@ class ClientService extends CommonService
         }
         /** @var \App\Repository\ClientRepository $clientRepo */
         $clientRepo = $this->em->getRepository(Client::class);
-        return $clientRepo->getAllClients($params, $orderBy);
+        return $clientRepo->getAllClients($params, $orderBy, $scope->clientId());
     }
 
     public function create(CreateClientDto $dto, int $environmentId): Client

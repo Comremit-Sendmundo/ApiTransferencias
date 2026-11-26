@@ -3,9 +3,13 @@
 namespace App\Tests\Service;
 
 use App\DTO\AccountBalanceDto;
+use App\DTO\BalanceInDto;
 use App\Entity\Account;
+use App\Entity\BalanceOperation;
 use App\Entity\Client;
 use App\Entity\EmailNotification;
+use App\Entity\User;
+use App\Exception\MyCurrentException;
 use App\Provider\ProviderContextFactory;
 use App\Provider\ProviderRegistry;
 use App\Provider\ProviderResolver;
@@ -72,6 +76,74 @@ class BalanceServiceTest extends TestCase
             $providerRegistry,
             $providerContextFactory,
         );
+    }
+
+    // ---- Alcance por cliente (COMR-399) ----
+
+    private function authenticatePanelUser(?int $clientId, bool $isAdmin = false): void
+    {
+        $user = new User();
+        if ($clientId !== null) {
+            $client = $this->createStub(Client::class);
+            $client->method('getId')->willReturn($clientId);
+            $user->setCompany($client);
+        }
+        $this->security->method('getUser')->willReturn($user);
+        $this->security->method('isGranted')->willReturnCallback(
+            static fn (string $role): bool => $isAdmin || $role !== 'ROLE_ADMIN'
+        );
+    }
+
+    public function testAUserWithoutAClientGetsNoBalancesWithoutQuerying(): void
+    {
+        $this->authenticatePanelUser(null);
+        $this->em->expects($this->never())->method('getRepository');
+
+        $this->assertSame([], $this->service->getBalancesByEnvironment(null));
+        $this->assertSame([], $this->service->recentTransactions(5));
+    }
+
+    public function testAUserWithoutAClientGetsAnEmptyPageOfOperationsWithoutQuerying(): void
+    {
+        $this->authenticatePanelUser(null);
+        $this->em->expects($this->never())->method('getRepository');
+
+        $page = $this->service->getBalanceOperations([], 'createdAt ASC', 2, 15);
+
+        $this->assertSame([0, 2, 15, []], [$page->getTotal(), $page->getPage(), $page->getPerPage(), $page->getResults()]);
+    }
+
+    public function testRecentTransactionsOfAUserAreLimitedToItsClient(): void
+    {
+        $this->authenticatePanelUser(7);
+        $balanceRepo = $this->createMock(BalanceOperationRepository::class);
+        $balanceRepo->expects($this->once())->method('getRecentTransactions')->with(5, 7)->willReturn([]);
+        $this->em->method('getRepository')->willReturn($balanceRepo);
+
+        $this->service->recentTransactions(5);
+    }
+
+    public function testUpdatingTheOperationOfAnotherClientIsNotFoundAndChangesNothing(): void
+    {
+        $this->authenticatePanelUser(7);
+        $owner = $this->createStub(Client::class);
+        $owner->method('getId')->willReturn(8);
+        $account = $this->createStub(Account::class);
+        $account->method('getClient')->willReturn($owner);
+        $operation = $this->createMock(BalanceOperation::class);
+        $operation->method('getTenant')->willReturn($account);
+        $operation->expects($this->never())->method('setState');
+        $repo = $this->createStub(EntityRepository::class);
+        $repo->method('find')->willReturn($operation);
+        $this->em->method('getRepository')->willReturn($repo);
+        $this->em->expects($this->never())->method('flush');
+
+        try {
+            $this->service->update(3, new BalanceInDto(null, null, null, null, true, null, null, 10.0, 'USD', null, null));
+            $this->fail('Debía lanzar BALANCE_OPERATION_NOT_FOUND');
+        } catch (MyCurrentException $e) {
+            $this->assertSame(['BALANCE_OPERATION_NOT_FOUND', 404], [$e->getCodeWork(), $e->getCode()]);
+        }
     }
 
     public function testBalanceReturnsAccountBalanceDtoWhenAccountIsNull(): void
